@@ -1,0 +1,6 @@
+# Copy to .dev.vars for local development (`npm run dev`). Generate keys with `npm run vapid`.
+VAPID_PUBLIC_KEY="..."
+VAPID_PRIVATE_KEY="..."
+VAPID_SUBJECT="mailto:you@example.com"
+# Local testing only: lets the worker send to a mock push server on localhost.
+ALLOW_ANY_PUSH_ENDPOINT="true"

@@ -1,0 +1,22 @@
+{
+  "name": "tell-me",
+  "private": true,
+  "description": "Tell Me: a habit tracker built around one question — did you show up? Web app + iPhone app (web/) and the push-reminder service (api/).",
+  "scripts": {
+    "setup": "npm ci && npm --prefix api ci && npm --prefix web ci",
+    "dev:web": "npm --prefix web run dev",
+    "dev:api": "npm --prefix api run dev",
+    "typecheck": "npm --prefix api run typecheck && npm --prefix web run typecheck",
+    "test": "npm --prefix api test && npm --prefix web test",
+    "test:integration": "npm --prefix api run test:integration",
+    "test:e2e": "node e2e/app.e2e.mjs && node e2e/native.e2e.mjs && node e2e/push-flow.e2e.mjs",
+    "test:all": "npm run typecheck && npm test && npm run test:integration && npm run test:e2e",
+    "ios": "npm --prefix web run ios"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.0"
+  },
+  "engines": {
+    "node": ">=22.12"
+  }
+}

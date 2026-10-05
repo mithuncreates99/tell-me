@@ -1,0 +1,35 @@
+name: Deploy reminder service to Cloudflare
+
+# Optional. Runs when you push changes to api/ (or click "Run workflow") once you have added
+# the CLOUDFLARE_API_TOKEN secret and set the repository variable DEPLOY_API to "true".
+on:
+  push:
+    branches: [main]
+    paths: ['api/**']
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    if: ${{ vars.DEPLOY_API == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+      - run: npm ci
+        working-directory: api
+      - run: npm test
+        working-directory: api
+      - name: Apply database migrations
+        working-directory: api
+        run: npx wrangler d1 migrations apply tell-me --remote
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      - name: Deploy
+        working-directory: api
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

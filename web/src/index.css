@@ -1,0 +1,258 @@
+@import 'tailwindcss';
+
+/* Every theme-dependent value is a CSS variable; components never hard-code colors. */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-soft: var(--brand-soft);
+  --color-on-brand: var(--on-brand);
+  --color-yes: var(--yes);
+  --color-yes-soft: var(--yes-soft);
+  --color-no: var(--no);
+  --color-no-soft: var(--no-soft);
+  --color-flame: var(--flame);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Apple Color Emoji',
+    'Segoe UI Emoji', sans-serif;
+}
+
+:root {
+  color-scheme: light;
+  --bg: #f6f6f9;
+  --surface: #ffffff;
+  --surface-2: #f0eff5;
+  --line: rgba(20, 18, 40, 0.09);
+  --ink: #12111a;
+  --ink-2: #514f63;
+  --ink-3: #7c7a8f;
+  --brand: #634cd4;
+  --brand-strong: #5534c5;
+  --brand-soft: #ededfc;
+  --on-brand: #ffffff;
+  --yes: #078c38;
+  --yes-soft: #e3f7e7;
+  --no: #cc323e;
+  --no-soft: #fcebec;
+  --flame: #e8640c;
+  --shadow: 0 1px 2px rgba(20, 18, 40, 0.05), 0 4px 16px rgba(20, 18, 40, 0.05);
+  --grid: #e9e8f0;
+  --axis: #c9c7d6;
+  /* sequential ramp (validated ordinal steps): none, some, most, all */
+  --heat-0: #e5e6fc;
+  --heat-1: #9d98f2;
+  --heat-2: #796ce0;
+  --heat-3: #593ec7;
+  --heat-empty: #f0eff5;
+  --heat-ink: #ffffff; /* text on the two darkest heat steps */
+  /* habit colors (validated categorical palette) */
+  --habit-blue: #2a78d6;
+  --habit-orange: #eb6834;
+  --habit-aqua: #1baf7a;
+  --habit-yellow: #eda100;
+  --habit-magenta: #e87ba4;
+  --habit-green: #008300;
+  --habit-violet: #4a3aa7;
+  --habit-red: #e34948;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --bg: #0e0d12;
+    --surface: #17161c;
+    --surface-2: #211f29;
+    --line: rgba(255, 255, 255, 0.09);
+    --ink: #f4f3fa;
+    --ink-2: #bdbbcf;
+    --ink-3: #8b899e;
+    --brand: #968ff7;
+    --brand-strong: #b0adfe;
+    --brand-soft: #2b2458;
+    --on-brand: #0e0d12;
+    --yes: #48c063;
+    --yes-soft: rgba(72, 192, 99, 0.15);
+    --no: #f66c6d;
+    --no-soft: rgba(246, 108, 109, 0.15);
+    --flame: #f37513;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --grid: #26242f;
+    --axis: #3a3846;
+    --heat-0: #2b294b;
+    --heat-1: #6358ba;
+    --heat-2: #847ae8;
+    --heat-3: #b0adfe;
+    --heat-empty: #1d1b24;
+    --heat-ink: #0e0d12;
+    --habit-blue: #3987e5;
+    --habit-orange: #d95926;
+    --habit-aqua: #199e70;
+    --habit-yellow: #c98500;
+    --habit-magenta: #d55181;
+    --habit-green: #008300;
+    --habit-violet: #9085e9;
+    --habit-red: #e66767;
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0e0d12;
+  --surface: #17161c;
+  --surface-2: #211f29;
+  --line: rgba(255, 255, 255, 0.09);
+  --ink: #f4f3fa;
+  --ink-2: #bdbbcf;
+  --ink-3: #8b899e;
+  --brand: #968ff7;
+  --brand-strong: #b0adfe;
+  --brand-soft: #2b2458;
+  --on-brand: #0e0d12;
+  --yes: #48c063;
+  --yes-soft: rgba(72, 192, 99, 0.15);
+  --no: #f66c6d;
+  --no-soft: rgba(246, 108, 109, 0.15);
+  --flame: #f37513;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --grid: #26242f;
+  --axis: #3a3846;
+  --heat-0: #2b294b;
+  --heat-1: #6358ba;
+  --heat-2: #847ae8;
+  --heat-3: #b0adfe;
+  --heat-empty: #1d1b24;
+  --heat-ink: #0e0d12;
+  --habit-blue: #3987e5;
+  --habit-orange: #d95926;
+  --habit-aqua: #199e70;
+  --habit-yellow: #c98500;
+  --habit-magenta: #d55181;
+  --habit-green: #008300;
+  --habit-violet: #9085e9;
+  --habit-red: #e66767;
+}
+
+/* Base and component styles live in cascade layers so Tailwind utilities can always override them. */
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    background: var(--bg);
+  }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior-y: none;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+
+  input[type='time'] {
+    min-height: 44px;
+  }
+}
+
+@layer components {
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    box-shadow: var(--shadow);
+  }
+
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .safe-bottom {
+    padding-bottom: max(env(safe-area-inset-bottom), 8px);
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+}
+
+@keyframes pop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-pop {
+  animation: pop 320ms ease-out;
+}
+
+.animate-rise {
+  animation: rise 260ms ease-out both;
+}
+
+.animate-sheet {
+  animation: sheet-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.animate-fade {
+  animation: fade-in 160ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+  }
+}

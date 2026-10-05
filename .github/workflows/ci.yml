@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            api/package-lock.json
+            web/package-lock.json
+
+      - name: Install
+        run: npm run setup
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Unit tests (api + web)
+        run: npm test
+
+      - name: Build web app
+        run: npm --prefix web run build
+
+      - name: Integration test (worker + local D1 + mock push service)
+        run: npm run test:integration
+
+      - name: Install Chromium for end-to-end tests
+        run: npx playwright install --with-deps chromium
+
+      - name: End-to-end tests (UI + full push flow)
+        run: npm run test:e2e

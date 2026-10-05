@@ -1,0 +1,28 @@
+{
+  "name": "tell-me-api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Tell Me push-reminder service: a Cloudflare Worker that sends 'Did you show up?' Web Push notifications on each user's schedule.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --test-scheduled",
+    "deploy": "wrangler deploy",
+    "db:migrate:local": "wrangler d1 migrations apply tell-me --local",
+    "db:migrate:remote": "wrangler d1 migrations apply tell-me --remote",
+    "vapid": "node scripts/generate-vapid-keys.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:integration": "node scripts/integration-test.mjs"
+  },
+  "dependencies": {
+    "hono": "^4.13.13",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261005.1",
+    "http_ece": "^1.2.1",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.3",
+    "wrangler": "^4.147.0"
+  }
+}
