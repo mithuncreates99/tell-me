@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { ReasonSheet } from './components/Occurrence';
 import { Toast } from './components/Toast';
 import { Logo, cx } from './components/ui';
+import { loadAccount } from './lib/account';
 import { onExternalChange, onUpgradeBlocked } from './lib/db';
 import { IS_NATIVE, loadNativeBackup, onNotificationAction, saveNativeBackup, syncLocalReminders } from './lib/native';
 import { IS_PREVIEW } from './lib/platform';
@@ -99,20 +100,23 @@ function usePushSync() {
   const checkins = useStore((s) => s.checkins);
   const weekly = useStore((s) => s.settings.weeklyReport);
   const askTime = useStore((s) => s.settings.defaultAskTime);
+  const signedIn = useSocial((s) => !!s.account);
 
   useEffect(() => {
     if (!ready || !enabled || pushBlocker()) return;
     const timer = setTimeout(async () => {
       const { settings, habits, checkins, updateSettings } = useStore.getState();
       try {
-        const next = await syncPush(settings.push, habits, checkins, settings, new Date());
+        // Read from storage, not from memory: right after launch the account may not be loaded yet.
+        const account = await loadAccount().catch(() => null);
+        const next = await syncPush(settings.push, habits, checkins, settings, new Date(), false, !!account);
         if (next !== settings.push) await updateSettings({ push: next });
       } catch (err) {
         await updateSettings({ push: { ...settings.push, lastError: err instanceof Error ? err.message : 'Sync failed' } });
       }
     }, 1200);
     return () => clearTimeout(timer);
-  }, [ready, enabled, habits, checkins, weekly, askTime]);
+  }, [ready, enabled, habits, checkins, weekly, askTime, signedIn]);
 }
 
 /** iPhone app: keep the phone's own reminder schedule and a native backup of the data up to date. */

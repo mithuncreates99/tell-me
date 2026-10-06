@@ -3,7 +3,7 @@ import { bearerToken, sha256Hex, timingSafeEqual } from '../auth';
 import { notifyUsers } from '../notify';
 import { getDevice } from '../repo';
 import { randomFriendCode, randomId } from '../social';
-import { friendIds, profileOf, requireUser, underLimit, userByAuthHash, type AppEnv } from '../users';
+import { friendIds, hourWindow, profileOf, requireUser, underLimit, userByAuthHash, type AppEnv } from '../users';
 import { authSecretSchema, createAccountSchema, deviceIdSchema, linkDeviceSchema, updateProfileSchema } from '../validation';
 
 export const account = new Hono<AppEnv>();
@@ -26,7 +26,7 @@ account.post('/account', async (c) => {
 
   const now = Date.now();
   const ip = c.req.header('CF-Connecting-IP') ?? 'local';
-  if (!(await underLimit(c.env.DB, `signup:${ip}`, new Date(now).toISOString().slice(0, 13), 10))) {
+  if (!(await underLimit(c.env.DB, `signup:${ip}`, hourWindow(now), 10))) {
     return c.json({ error: 'Too many new accounts from this network. Try again in an hour.' }, 429);
   }
   for (let attempt = 0; attempt < 5; attempt++) {
@@ -87,15 +87,22 @@ account.post('/me/friend-code', async (c) => {
   return c.json({ error: 'Please try again.' }, 500);
 });
 
-/** Delete the account and everything stored about it. */
+/** Delete the account and everything stored about it: afterwards its id appears nowhere. */
 account.delete('/me', async (c) => {
   const user = c.get('user');
   const db = c.env.DB;
   const friends = await friendIds(db, user.id);
   const { results: memberships } = await db
-    .prepare('SELECT challenge_id FROM challenge_members WHERE user_id = ?')
+    .prepare('SELECT DISTINCT challenge_id FROM challenge_members WHERE user_id = ?1 UNION SELECT id FROM challenges WHERE owner_id = ?1')
     .bind(user.id)
     .all<{ challenge_id: string }>();
+  const challengeIds = memberships.map((m) => m.challenge_id);
+  const { results: coMembers } = challengeIds.length
+    ? await db
+        .prepare(`SELECT DISTINCT user_id FROM challenge_members WHERE user_id != ? AND challenge_id IN (${challengeIds.map(() => '?').join(',')})`)
+        .bind(user.id, ...challengeIds)
+        .all<{ user_id: string }>()
+    : { results: [] as Array<{ user_id: string }> };
   await db.batch([
     db.prepare('DELETE FROM sync_records WHERE user_id = ?').bind(user.id),
     db.prepare('DELETE FROM shared_habits WHERE user_id = ?').bind(user.id),
@@ -103,11 +110,23 @@ account.delete('/me', async (c) => {
     db.prepare('DELETE FROM reactions WHERE from_id = ?1 OR to_id = ?1').bind(user.id),
     db.prepare('DELETE FROM nudges WHERE from_id = ?1 OR to_id = ?1').bind(user.id),
     db.prepare('DELETE FROM challenge_members WHERE user_id = ?').bind(user.id),
-    ...memberships.flatMap(({ challenge_id }) => removeIfEmpty(db, challenge_id)),
+    // Invites they sent and nobody accepted go too; challenges others joined carry on without an organiser.
+    db.prepare('DELETE FROM challenge_members WHERE joined_at IS NULL AND challenge_id IN (SELECT id FROM challenges WHERE owner_id = ?)').bind(user.id),
+    db.prepare('UPDATE challenge_members SET invited_by = NULL WHERE invited_by = ?').bind(user.id),
+    db.prepare("UPDATE challenges SET owner_id = '' WHERE owner_id = ?").bind(user.id),
+    ...challengeIds.flatMap((id) => removeIfEmpty(db, id)),
     db.prepare('UPDATE devices SET user_id = NULL WHERE user_id = ?').bind(user.id),
+    db.prepare('DELETE FROM rate_limits WHERE key = ?').bind(`codes:${user.id}`),
     db.prepare('DELETE FROM users WHERE id = ?').bind(user.id),
   ]);
-  c.executionCtx.waitUntil(notifyUsers(c.env, friends, { t: 'friends', from: user.id }));
+  c.executionCtx.waitUntil(
+    Promise.all([
+      notifyUsers(c.env, friends, { t: 'friends', from: user.id }),
+      notifyUsers(c.env, coMembers.map((m) => m.user_id), { t: 'challenges' }),
+      // Signed-in apps of this account lose their live connection now, not whenever they next reconnect.
+      c.env.HUB.get(c.env.HUB.idFromName(user.id)).disconnect(),
+    ]),
+  );
   return c.json({ ok: true });
 });
 

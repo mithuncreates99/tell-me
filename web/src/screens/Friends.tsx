@@ -449,7 +449,10 @@ function FriendMenu({ friend, open, onClose }: { friend: FriendView; open: boole
       >
         Remove friend
       </Button>
-      <p className="mt-2 text-center text-[13px] text-ink-3">You'll stop seeing each other's habits. They won't be notified.</p>
+      <p className="mt-2 text-center text-[13px] text-ink-3">
+        You'll stop seeing each other's habits and leave the challenges the other started (in one someone else started, you
+        both stay until you leave it). They won't be notified.
+      </p>
     </Sheet>
   );
 }

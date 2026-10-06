@@ -90,6 +90,7 @@ app.put('/api/devices/:id', async (c) => {
       now,
     ),
     deleteReminders(c.env.DB, id.data),
+    ...(body.signedIn === false ? [c.env.DB.prepare('UPDATE devices SET user_id = NULL WHERE id = ?').bind(id.data)] : []),
     ...scheduled.map(({ r, days, next }) =>
       insertReminder(c.env.DB, {
         device_id: id.data,

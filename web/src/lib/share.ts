@@ -7,7 +7,8 @@ import type { Habit, Settings } from './types';
 
 /**
  * What friends see: only habits marked "shared", and for each one this week's Yes/No pattern
- * and the streak. Reasons, notes and every other habit stay private (and encrypted).
+ * and the current streak. Reasons, notes, past weeks and every other habit stay private (and
+ * encrypted).
  *
  * Week string, one char per day from weekStart:
  *   Y yes · N no · M missed (past, never answered) · P due today · F due later · . not planned
@@ -57,7 +58,6 @@ export function buildShare(
         askMin: Math.min(askMinutes(h, settings), 2880),
         week: weekPattern(h, checkins, weekStart, today),
         streak: streak.current,
-        best: streak.best,
       };
     }),
   };

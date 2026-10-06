@@ -4,18 +4,24 @@ import { notifyUsers, pushToUser } from '../notify';
 import {
   addDays,
   clip,
+  coarseLastSeen,
   daysBetween,
   normalizeSharedHabit,
+  visibleShare,
   weekSummary,
   type SharedHabitRow,
   type SharedHabitView,
 } from '../social';
 import { daysToMask } from '../schedule';
 import { localDate } from '../tz';
-import { areFriends, friendIds, profileOf, requireUser, spendWrites, userById, type AppEnv, type UserRow } from '../users';
+import { areFriends, friendIds, hourWindow, profileOf, requireUser, spendWrites, underLimit, userById, type AppEnv, type UserRow } from '../users';
 import { addFriendSchema, friendCodeSchema, nudgeSchema, reactionSchema, shareSchema, userIdSchema } from '../validation';
+import { removeIfEmpty } from './account';
 
 export const MAX_FRIENDS = 100;
+/** Friend codes are the key to your shared habits: guessing them is capped per account and per network. */
+export const CODE_TRIES_PER_HOUR = 30;
+export const INVITE_VIEWS_PER_HOUR = 60;
 
 export const friends = new Hono<AppEnv>();
 for (const path of ['/friends/*', '/share', '/nudges', '/reactions']) friends.use(path, requireUser); // /friends/* also matches /friends
@@ -61,7 +67,7 @@ export async function buildFeed(db: D1Database, user: UserRow, now: number) {
     me: { ...profileOf(user), habits: mine, week: weekSummary(mine) },
     friends: people.map((p) => {
       const habits = habitsBy.get(p.id) ?? [];
-      return { id: p.id, name: p.name, emoji: p.emoji, since: p.since, lastSeenAt: p.last_seen_at, habits, week: weekSummary(habits) };
+      return { id: p.id, name: p.name, emoji: p.emoji, since: p.since, lastSeenAt: coarseLastSeen(p.last_seen_at), habits, week: weekSummary(habits) };
     }),
     reactions: (reactionRows!.results as Array<{ from_id: string; to_id: string; habit_id: string; date: string; emoji: string; created_at: number }>).map(
       (r) => ({ from: r.from_id, to: r.to_id, habitId: r.habit_id, date: r.date, emoji: r.emoji, at: r.created_at }),
@@ -83,6 +89,10 @@ friends.get('/friends', async (c) => c.json(await buildFeed(c.env.DB, c.get('use
 friends.get('/invite/:code', async (c) => {
   const code = friendCodeSchema.safeParse(c.req.param('code'));
   if (!code.success) return c.json({ error: "That invite link isn't valid." }, 400);
+  const ip = c.req.header('CF-Connecting-IP') ?? 'local';
+  if (!(await underLimit(c.env.DB, `invite:${ip}`, hourWindow(), INVITE_VIEWS_PER_HOUR))) {
+    return c.json({ error: 'Too many invite links opened from this network. Try again in an hour.' }, 429);
+  }
   const owner = await c.env.DB.prepare('SELECT name, emoji FROM users WHERE friend_code = ?')
     .bind(code.data)
     .first<{ name: string; emoji: string }>();
@@ -90,16 +100,23 @@ friends.get('/invite/:code', async (c) => {
   return c.json({ name: owner.name, emoji: owner.emoji });
 });
 
-/** Who does this code belong to? (Shown before adding, so you know it's the right person.) */
+const TOO_MANY_TRIES = 'Too many friend codes tried. Try again in an hour.';
+const codeTriesLeft = (db: D1Database, userId: string) => underLimit(db, `codes:${userId}`, hourWindow(), CODE_TRIES_PER_HOUR);
+
+/**
+ * Who does this code belong to? (Shown before adding, so you know it's the right person.)
+ * Same as an invite link: name and avatar only, until you're friends.
+ */
 friends.get('/friends/lookup/:code', async (c) => {
   const user = c.get('user');
   const code = friendCodeSchema.safeParse(c.req.param('code'));
   if (!code.success) return c.json({ error: "That code doesn't look right." }, 400);
+  if (!(await codeTriesLeft(c.env.DB, user.id))) return c.json({ error: TOO_MANY_TRIES }, 429);
   const other = await c.env.DB.prepare('SELECT id, name, emoji FROM users WHERE friend_code = ?')
     .bind(code.data)
     .first<Pick<UserRow, 'id' | 'name' | 'emoji'>>();
   if (!other) return c.json({ error: 'No one has that code. It may have been changed.' }, 404);
-  return c.json({ user: brief(other), isSelf: other.id === user.id, isFriend: await areFriends(c.env.DB, user.id, other.id) });
+  return c.json({ user: { name: other.name, emoji: other.emoji }, isSelf: other.id === user.id, isFriend: await areFriends(c.env.DB, user.id, other.id) });
 });
 
 friends.post('/friends', async (c) => {
@@ -107,6 +124,7 @@ friends.post('/friends', async (c) => {
   const body = addFriendSchema.safeParse(await c.req.json().catch(() => null));
   if (!body.success) return c.json({ error: "That code doesn't look right." }, 400);
   const db = c.env.DB;
+  if (!(await codeTriesLeft(db, user.id))) return c.json({ error: TOO_MANY_TRIES }, 429);
   const other = await db.prepare('SELECT * FROM users WHERE friend_code = ?').bind(body.data.code).first<UserRow>();
   if (!other) return c.json({ error: 'No one has that code. It may have been changed.' }, 404);
   if (other.id === user.id) return c.json({ error: "That's your own code. Send it to a friend instead." }, 400);
@@ -139,17 +157,44 @@ friends.post('/friends', async (c) => {
   return c.json({ friend: brief(other), added: true }, 201);
 });
 
+/**
+ * Remove a friend: neither of you sees the other's habits, reactions or nudges any more.
+ * A challenge is made of its organiser's friends, so each of you also leaves the challenges the
+ * other started (a challenge someone else started, you both stay in until you leave it).
+ */
 friends.delete('/friends/:id', async (c) => {
   const user = c.get('user');
   const id = userIdSchema.safeParse(c.req.param('id'));
   if (!id.success) return c.json({ error: 'Invalid id' }, 400);
   const db = c.env.DB;
+  // Not friends (or no such person): nothing to do, and nobody is told anything.
+  if (!(await areFriends(db, user.id, id.data))) return c.json({ ok: true });
+
+  const { results: theirChallenges } = await db
+    .prepare(
+      `SELECT m.challenge_id, m.user_id FROM challenge_members m JOIN challenges ch ON ch.id = m.challenge_id
+       WHERE (ch.owner_id = ?1 AND m.user_id = ?2) OR (ch.owner_id = ?2 AND m.user_id = ?1)`,
+    )
+    .bind(user.id, id.data)
+    .all<{ challenge_id: string; user_id: string }>();
+  const challengeIds = [...new Set(theirChallenges.map((r) => r.challenge_id))];
   await db.batch([
     db.prepare('DELETE FROM friendships WHERE (user_id = ?1 AND friend_id = ?2) OR (user_id = ?2 AND friend_id = ?1)').bind(user.id, id.data),
     db.prepare('DELETE FROM reactions WHERE (from_id = ?1 AND to_id = ?2) OR (from_id = ?2 AND to_id = ?1)').bind(user.id, id.data),
     db.prepare('DELETE FROM nudges WHERE (from_id = ?1 AND to_id = ?2) OR (from_id = ?2 AND to_id = ?1)').bind(user.id, id.data),
+    ...theirChallenges.map((r) => db.prepare('DELETE FROM challenge_members WHERE challenge_id = ? AND user_id = ?').bind(r.challenge_id, r.user_id)),
+    ...challengeIds.flatMap((cid) => removeIfEmpty(db, cid)),
   ]);
-  c.executionCtx.waitUntil(notifyUsers(c.env, [user.id, id.data], { t: 'friends', from: user.id }));
+
+  const events: Promise<unknown>[] = [notifyUsers(c.env, [user.id, id.data], { t: 'friends', from: user.id })];
+  if (challengeIds.length) {
+    const { results: members } = await db
+      .prepare(`SELECT DISTINCT user_id FROM challenge_members WHERE challenge_id IN (${challengeIds.map(() => '?').join(',')})`)
+      .bind(...challengeIds)
+      .all<{ user_id: string }>();
+    events.push(notifyUsers(c.env, [user.id, id.data, ...members.map((m) => m.user_id)], { t: 'challenges' }));
+  }
+  c.executionCtx.waitUntil(Promise.all(events));
   return c.json({ ok: true });
 });
 
@@ -172,36 +217,55 @@ friends.put('/share', async (c) => {
   }
   const hash = await sha256Hex(JSON.stringify({ d: body.date, w: body.weekStart, z: body.timeZone, h: body.habits }));
   const changed = hash !== user.share_hash;
+  if (!changed) return c.json({ ok: true, changed });
 
-  if (changed) {
-    if (!(await spendWrites(db, user.id, body.habits.length + 2))) {
-      return c.json({ error: 'Daily limit reached. It resets at midnight UTC.' }, 429);
-    }
-    await db.batch([
-      db.prepare('DELETE FROM shared_habits WHERE user_id = ?').bind(user.id),
-      ...body.habits.map((h, position) =>
-        db
-          .prepare(
-            `INSERT INTO shared_habits (user_id, habit_id, name, emoji, color, days, time, ask_min, date, week_start, week, streak, best, position, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          )
-          .bind(user.id, h.id, h.name, h.emoji, h.color, daysToMask(h.days), h.time, h.askMin, body.date, body.weekStart, h.week, h.streak, h.best, position, now),
-      ),
-      db.prepare('UPDATE users SET share_hash = ?, time_zone = ? WHERE id = ?').bind(hash, body.timeZone, user.id),
-    ]);
+  if (!(await spendWrites(db, user.id, body.habits.length + 2))) {
+    return c.json({ error: 'Daily limit reached. It resets at midnight UTC.' }, 429);
   }
+  // Only these columns are stored: nothing else in a request (notes, reasons, other habits) can be.
+  const rows: SharedHabitRow[] = body.habits.map((h, position) => ({
+    user_id: user.id,
+    habit_id: h.id,
+    name: h.name,
+    emoji: h.emoji,
+    color: h.color,
+    days: daysToMask(h.days),
+    time: h.time,
+    ask_min: h.askMin,
+    date: body.date,
+    week_start: body.weekStart,
+    week: h.week,
+    streak: h.streak,
+    best: 0, // older apps still send their best streak; it isn't shown to anyone, so it isn't kept
+    position,
+    updated_at: now,
+  }));
+  const { results: before } = await db.prepare('SELECT * FROM shared_habits WHERE user_id = ?').bind(user.id).all<SharedHabitRow>();
+  await db.batch([
+    db.prepare('DELETE FROM shared_habits WHERE user_id = ?').bind(user.id),
+    ...rows.map((r) =>
+      db
+        .prepare(
+          `INSERT INTO shared_habits (user_id, habit_id, name, emoji, color, days, time, ask_min, date, week_start, week, streak, best, position, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(r.user_id, r.habit_id, r.name, r.emoji, r.color, r.days, r.time, r.ask_min, r.date, r.week_start, r.week, r.streak, r.best, r.position, r.updated_at),
+    ),
+    db.prepare('UPDATE users SET share_hash = ?, time_zone = ? WHERE id = ?').bind(hash, body.timeZone, user.id),
+  ]);
 
-  // Only a real change reaches friends: one event each ("checkin" also refreshes their screen).
-  const habit = body.event ? body.habits.find((h) => h.id === body.event!.habitId) : undefined;
-  if (changed) {
+  // The account's own devices refresh. Friends only hear about it when something they can see
+  // changed, so a new day or a re-sent snapshot doesn't tell them when you opened the app.
+  const events: Promise<unknown>[] = [notifyUsers(c.env, [user.id], { t: 'friends', from: user.id })];
+  if (visibleShare(before, user.time_zone, now) !== visibleShare(rows, body.timeZone, now)) {
+    const habit = body.event ? body.habits.find((h) => h.id === body.event!.habitId) : undefined;
     const event =
       habit && body.event
         ? { t: 'checkin', from: brief(user), habit: { id: habit.id, name: habit.name, emoji: habit.emoji }, answer: body.event.answer }
         : { t: 'friends', from: user.id };
-    c.executionCtx.waitUntil(
-      Promise.all([notifyUsers(c.env, [user.id], { t: 'friends', from: user.id }), friendIds(db, user.id).then((ids) => notifyUsers(c.env, ids, event))]),
-    );
+    events.push(friendIds(db, user.id).then((ids) => notifyUsers(c.env, ids, event)));
   }
+  c.executionCtx.waitUntil(Promise.all(events));
   return c.json({ ok: true, changed });
 });
 

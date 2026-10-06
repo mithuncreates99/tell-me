@@ -3,7 +3,7 @@ import { deriveKeys, forgetAccount, loadAccount, saveAccount, type AccountRecord
 import { API_URL, ApiError, cloud, type ChallengeView, type FriendsFeed, type Reaction } from '../lib/api';
 import * as db from '../lib/db';
 import { connectLive, type LiveEvent, type LiveStatus } from '../lib/live';
-import { IS_NATIVE, loadNativeAccount, saveNativeAccount } from '../lib/native';
+import { clearNativeBackup, disableLocalReminders, IS_NATIVE, loadNativeAccount, saveNativeAccount } from '../lib/native';
 import { IS_PREVIEW } from '../lib/platform';
 import { loadSyncState, syncNow as runSync, type SyncState } from '../lib/sync';
 import { useStore } from './useStore';
@@ -134,6 +134,12 @@ export const useSocial = create<State & Actions>()((set, get) => {
         toast(`${e.from.emoji} ${e.from.name} reacted ${e.emoji} to ${e.habit.emoji} ${e.habit.name}`, 'good');
         refreshFeedSoon();
         break;
+      case 'gone': // deleted on another device: a sync confirms it and signs this one out
+        get().stopLive();
+        void get()
+          .syncNow()
+          .then(() => (get().account ? get().startLive() : undefined));
+        break;
     }
   };
 
@@ -204,11 +210,15 @@ export const useSocial = create<State & Actions>()((set, get) => {
 
     async signOut() {
       const account = get().account;
+      // Offline? The phone also tells the server itself on its next reminder sync (signedIn: false).
       if (account?.linkedDeviceId) await cloud.unlinkDevice(await auth(), account.linkedDeviceId).catch(() => {});
       await forgetLocally();
-      // The habits belong to the account: remove this device's copy.
+      // The habits belong to the account: remove this device's copy. On the iPhone that includes
+      // the native backup and the scheduled reminders (they'd bring the old habits back, or keep
+      // showing their names, if the app were closed right now).
+      if (IS_NATIVE) await Promise.all([clearNativeBackup(), disableLocalReminders()]).catch(() => {});
       const { settings } = useStore.getState();
-      await db.replaceAll({ habits: [], checkins: [], settings: { ...settings, onboarded: false } });
+      await db.replaceAll({ habits: [], checkins: [], settings: { ...settings, onboarded: false, name: '' } });
       await useStore.getState().reloadFromDisk();
     },
 

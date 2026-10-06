@@ -70,6 +70,9 @@ export async function spendWrites(db: D1Database, userId: string, n: number): Pr
   return (res.meta.changes ?? 0) > 0;
 }
 
+/** The current UTC hour ("2026-10-06T14"), the window of the hourly limits. */
+export const hourWindow = (now = Date.now()) => new Date(now).toISOString().slice(0, 13);
+
 /** Fixed-window counter: true while `key` has been hit at most `limit` times in this window. */
 export async function underLimit(db: D1Database, key: string, window: string, limit: number): Promise<boolean> {
   const row = await db

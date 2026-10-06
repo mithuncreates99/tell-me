@@ -44,7 +44,8 @@ class FakeServer {
     if (u.pathname === '/api/sync') {
       const since = Number(u.searchParams.get('since'));
       const records = [...this.records.values()].filter((r) => r.s > since).sort((a, b) => a.s - b.s);
-      return Response.json({ records, seq: records.length ? records[records.length - 1]!.s : since, more: false });
+      // A device of this account has push reminders, so the app says which check-ins were answered.
+      return Response.json({ records, seq: records.length ? records[records.length - 1]!.s : since, more: false, reminders: true });
     }
     if (u.pathname === '/api/share') {
       this.shares.push(body);

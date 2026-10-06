@@ -53,7 +53,9 @@ export async function sendPush(env: Env, target: PushTarget, payload: PushPayloa
       {
         ttl: TTL_SECONDS[payload.type],
         urgency: payload.type === 'checkin' ? 'high' : 'normal',
-        topic: payload.type === 'checkin' ? topicFor(payload.habitId) : payload.type === 'social' ? topicFor(payload.tag, '') : undefined,
+        // The push service can read this header (unlike the encrypted payload), so friends'
+        // notifications don't get one: it would show it who interacts with whom.
+        topic: payload.type === 'checkin' ? topicFor(payload.habitId) : undefined,
       },
     );
   } catch (err) {

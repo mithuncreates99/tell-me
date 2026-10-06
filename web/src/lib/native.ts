@@ -104,6 +104,11 @@ export async function saveNativeBackup(backup: BackupFile): Promise<void> {
   await Preferences.set({ key: BACKUP_KEY, value: JSON.stringify(backup) });
 }
 
+/** Signed out: the backup must go too, or the next launch would restore the old account's habits. */
+export async function clearNativeBackup(): Promise<void> {
+  await Preferences.remove({ key: BACKUP_KEY });
+}
+
 export async function loadNativeBackup(): Promise<BackupFile | null> {
   const { value } = await Preferences.get({ key: BACKUP_KEY });
   if (!value) return null;

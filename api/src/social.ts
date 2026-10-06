@@ -90,8 +90,6 @@ export interface SharedHabitView {
   week: string;
   weekStart: string;
   streak: number;
-  best: number;
-  updatedAt: number;
 }
 
 const isDue = (days: number, date: string) => (days & (1 << weekdayOf(date))) !== 0;
@@ -159,10 +157,21 @@ export function normalizeSharedHabit(row: SharedHabitRow, timeZone: string, now:
     week: week.join(''),
     weekStart,
     streak,
-    best: row.best,
-    updatedAt: row.updated_at,
   };
 }
+
+/**
+ * What friends see of someone's shared habits at `now`. Comparing it before and after an update
+ * tells us whether friends need to hear about it: a new day, a new time zone or a re-sent
+ * snapshot changes nothing they can see, so it mustn't reveal when someone opened the app.
+ */
+export function visibleShare(rows: readonly SharedHabitRow[], timeZone: string, now: number): string {
+  return JSON.stringify([...rows].sort((a, b) => a.position - b.position).map((r) => normalizeSharedHabit(r, timeZone, now)));
+}
+
+/** Friends see roughly when you were last active ("active now", "2 h ago"), never the exact time. */
+export const LAST_SEEN_STEP_MS = 15 * 60_000;
+export const coarseLastSeen = (at: number | null): number | null => (at ? at - (at % LAST_SEEN_STEP_MS) : null);
 
 export interface WeekSummary {
   yes: number;

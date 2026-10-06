@@ -35,8 +35,11 @@ jobs:
       - name: Integration test (worker + local D1 + mock push service)
         run: npm run test:integration
 
+      - name: Privacy tests (friends, invites, challenges, live events, pushes, account deletion)
+        run: npm run test:privacy
+
       - name: Install Chromium for end-to-end tests
         run: npx playwright install --with-deps chromium
 
-      - name: End-to-end tests (UI, iPhone app, push flow, friends + sync)
+      - name: End-to-end tests (UI, iPhone app, push flow, friends + sync, privacy)
         run: npm run test:e2e

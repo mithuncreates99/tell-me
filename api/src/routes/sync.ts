@@ -30,15 +30,21 @@ sync.get('/sync', async (c) => {
   const user = c.get('user');
   const q = syncPullSchema.safeParse({ since: c.req.query('since'), limit: c.req.query('limit') });
   if (!q.success) return c.json({ error: 'Invalid query' }, 400);
-  const { results } = await c.env.DB.prepare(
-    'SELECT kind, id, seq, updated_at, deleted, data FROM sync_records WHERE user_id = ? AND seq > ? ORDER BY seq LIMIT ?',
-  )
-    .bind(user.id, q.data.since, q.data.limit)
-    .all<RecordRow>();
+  const [{ results }, reminder] = await Promise.all([
+    c.env.DB.prepare('SELECT kind, id, seq, updated_at, deleted, data FROM sync_records WHERE user_id = ? AND seq > ? ORDER BY seq LIMIT ?')
+      .bind(user.id, q.data.since, q.data.limit)
+      .all<RecordRow>(),
+    c.env.DB.prepare("SELECT 1 AS ok FROM devices d JOIN reminders r ON r.device_id = d.id WHERE d.user_id = ? AND r.kind = 'checkin' LIMIT 1")
+      .bind(user.id)
+      .first(),
+  ]);
   return c.json({
     records: results.map((r) => ({ k: r.kind, id: r.id, s: r.seq, u: r.updated_at, d: r.deleted, x: r.data })),
     seq: results.length ? results[results.length - 1]!.seq : q.data.since,
     more: results.length === q.data.limit,
+    // Only when a device of this account has push reminders does the app say which check-ins
+    // were answered (so those reminders are skipped). Other accounts never reveal it.
+    reminders: reminder !== null,
   });
 });
 

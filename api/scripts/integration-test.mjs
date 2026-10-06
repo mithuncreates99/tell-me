@@ -6,150 +6,17 @@
  *
  *   npm run test:integration
  */
-import { spawn, execFileSync } from 'node:child_process';
-import { createECDH, randomBytes, randomUUID } from 'node:crypto';
-import { createServer } from 'node:http';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { randomBytes, randomUUID } from 'node:crypto';
 import assert from 'node:assert/strict';
-import ece from 'http_ece';
+import { b64url, checklist, secret, startLocalServer } from './harness.mjs';
 
-const API_PORT = 8799;
-const PUSH_PORT = 8798;
-const API = `http://127.0.0.1:${API_PORT}`;
-const persistDir = mkdtempSync(join(tmpdir(), 'tell-me-d1-'));
-const env = { ...process.env, NO_PROXY: '127.0.0.1,localhost', no_proxy: '127.0.0.1,localhost', WRANGLER_SEND_METRICS: 'false' };
-const b64url = (b) => Buffer.from(b).toString('base64url');
-let passed = 0;
-const step = async (name, fn) => {
-  await fn();
-  passed++;
-  console.log(`  ✓ ${name}`);
-};
-
-// ---------- VAPID keys for this run ----------
-const vapidPair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
-const vapidPublic = b64url(new Uint8Array(await crypto.subtle.exportKey('raw', vapidPair.publicKey)));
-const vapidPrivate = (await crypto.subtle.exportKey('jwk', vapidPair.privateKey)).d;
-
-// ---------- Mock push service ----------
-const subscriptions = new Map(); // path -> { ecdh, auth }
-const received = [];
-const pushServer = createServer((req, res) => {
-  const chunks = [];
-  req.on('data', (c) => chunks.push(c));
-  req.on('end', async () => {
-    const sub = subscriptions.get(req.url);
-    if (!sub || sub.gone) {
-      res.writeHead(410).end('gone');
-      return;
-    }
-    try {
-      const [, jwt, k] = req.headers.authorization.match(/^vapid t=([^,]+), k=(.+)$/);
-      const [h, p, s] = jwt.split('.');
-      const ok = await crypto.subtle.verify(
-        { name: 'ECDSA', hash: 'SHA-256' },
-        vapidPair.publicKey,
-        Buffer.from(s, 'base64url'),
-        new TextEncoder().encode(`${h}.${p}`),
-      );
-      assert.equal(ok, true, 'VAPID signature');
-      assert.equal(k, vapidPublic);
-      assert.equal(req.headers['content-encoding'], 'aes128gcm');
-      const plain = ece.decrypt(Buffer.concat(chunks), { version: 'aes128gcm', privateKey: sub.ecdh, authSecret: sub.auth });
-      received.push({ path: req.url, headers: req.headers, payload: JSON.parse(plain.toString()) });
-      res.writeHead(201).end();
-    } catch (err) {
-      console.error('mock push service rejected request:', err);
-      res.writeHead(400).end(String(err));
-    }
-  });
-});
-await new Promise((r) => pushServer.listen(PUSH_PORT, '127.0.0.1', r));
-
-function newSubscription(name) {
-  const ecdh = createECDH('prime256v1');
-  ecdh.generateKeys();
-  const auth = randomBytes(16);
-  const path = `/push/${name}`;
-  subscriptions.set(path, { ecdh, auth });
-  return {
-    path,
-    subscription: {
-      endpoint: `http://127.0.0.1:${PUSH_PORT}${path}`,
-      expirationTime: null,
-      keys: { p256dh: b64url(ecdh.getPublicKey()), auth: b64url(auth) },
-    },
-  };
-}
-
-// ---------- Local D1 + wrangler dev ----------
-const wrangler = (args, opts = {}) =>
-  execFileSync('npx', ['wrangler', ...args, '--persist-to', persistDir], { env, encoding: 'utf8', ...opts });
-const sql = (command) => {
-  const out = wrangler(['d1', 'execute', 'tell-me', '--local', '--json', '--command', command], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  return JSON.parse(out)[0].results;
-};
-
-console.log('Applying migrations to a fresh local D1 database…');
-wrangler(['d1', 'migrations', 'apply', 'tell-me', '--local'], { stdio: ['ignore', 'ignore', 'inherit'] });
-
-console.log('Starting wrangler dev…');
-const dev = spawn(
-  'npx',
-  [
-    'wrangler', 'dev', '--port', String(API_PORT), '--ip', '127.0.0.1', '--persist-to', persistDir, '--test-scheduled',
-    '--var', `VAPID_PUBLIC_KEY:${vapidPublic}`,
-    '--var', `VAPID_PRIVATE_KEY:${vapidPrivate}`,
-    '--var', 'VAPID_SUBJECT:mailto:test@example.com',
-    '--var', 'ALLOW_ANY_PUSH_ENDPOINT:true',
-  ],
-  { env, stdio: ['ignore', 'pipe', 'pipe'], detached: true },
-);
-let devLog = '';
-dev.stdout.on('data', (d) => (devLog += d));
-dev.stderr.on('data', (d) => (devLog += d));
-
-async function waitForServer() {
-  for (let i = 0; i < 120; i++) {
-    try {
-      const r = await fetch(`${API}/api/health`);
-      if (r.ok) return;
-    } catch {}
-    await new Promise((r) => setTimeout(r, 500));
-  }
-  throw new Error(`wrangler dev did not start:\n${devLog}`);
-}
-
-// wrangler dev occasionally drops a kept-alive socket between requests; retry once.
-const fetchRetry = async (url, init) => {
-  try {
-    return await fetch(url, init);
-  } catch {
-    await new Promise((r) => setTimeout(r, 200));
-    return fetch(url, init);
-  }
-};
-const api = (path, { token, ...init } = {}) =>
-  fetchRetry(`${API}${path}`, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-  });
-const tick = () => fetchRetry(`${API}/__scheduled?cron=*+*+*+*+*`);
-const waitFor = async (pred, what) => {
-  for (let i = 0; i < 40; i++) {
-    if (pred()) return;
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  throw new Error(`timed out waiting for ${what}`);
-};
+const server = await startLocalServer({ apiPort: 8799, pushPort: 8798 });
+const { api, authed, json, live, sql, tick, received, newSubscription, markGone, waitFor, vapidPublic } = server;
+const checks = checklist();
+const step = checks.step;
 
 let exitCode = 0;
 try {
-  await waitForServer();
   const deviceId = randomUUID().replace(/-/g, '');
   const token = b64url(randomBytes(32));
   const { path, subscription } = newSubscription('phone');
@@ -282,7 +149,7 @@ try {
         reminders: [{ id: 'run', kind: 'checkin', title: 'Run', emoji: '🏃', days: [weekday], time: '07:00' }],
       }),
     });
-    subscriptions.get(gone.path).gone = true;
+    markGone(gone.path);
     sql(`UPDATE reminders SET next_fire_at = ${Date.now() - 1_000} WHERE device_id = '${goneId}'`);
     await tick();
     await new Promise((r) => setTimeout(r, 500));
@@ -298,39 +165,6 @@ try {
 
 
   // ======================= accounts, sync, friends, live =======================
-  const secret = () => b64url(randomBytes(32));
-  const authed = (path, token, init = {}) => api(path, { ...init, token });
-  const json = async (res) => {
-    const text = await res.text();
-    try {
-      return JSON.parse(text);
-    } catch {
-      throw new Error(`not JSON (${res.status}): ${text.slice(0, 200)}`);
-    }
-  };
-  /** A live connection, like an open app. */
-  const live = (token) => {
-    const messages = [];
-    const ws = new WebSocket(`ws://127.0.0.1:${API_PORT}/api/live`, ['tell-me.v1', `auth.${token}`]);
-    const opened = new Promise((resolve, reject) => {
-      ws.addEventListener('open', resolve, { once: true });
-      ws.addEventListener('error', () => reject(new Error('websocket error')), { once: true });
-    });
-    ws.addEventListener('message', (e) => messages.push(JSON.parse(String(e.data))));
-    return {
-      ws,
-      messages,
-      opened,
-      next: async (t) => {
-        for (let i = 0; i < 60; i++) {
-          const idx = messages.findIndex((m) => m.t === t);
-          if (idx >= 0) return messages.splice(idx, 1)[0];
-          await new Promise((r) => setTimeout(r, 100));
-        }
-        throw new Error(`timed out waiting for live "${t}" event (got ${JSON.stringify(messages)})`);
-      },
-    };
-  };
   const parisToday = today;
   const weekStart = (() => {
     const d = new Date(`${parisToday}T12:00:00Z`);
@@ -541,16 +375,12 @@ try {
     for (const l of [A.live, A.live2, B.live]) l.ws.close();
   });
 
-  console.log(`\nIntegration test passed: ${passed} checks.`);
+  console.log(`\nIntegration test passed: ${checks.passed} checks.`);
 } catch (err) {
   exitCode = 1;
   console.error('\nIntegration test FAILED:', err);
-  console.error('\n--- wrangler dev output ---\n' + devLog.slice(-4000));
+  console.error('\n--- wrangler dev output ---\n' + server.devLog().slice(-4000));
 } finally {
-  try {
-    process.kill(-dev.pid, 'SIGTERM'); // the whole process group: npx -> wrangler -> workerd
-  } catch {}
-  pushServer.close();
-  rmSync(persistDir, { recursive: true, force: true });
+  server.stop();
   setTimeout(() => process.exit(exitCode), 300);
 }

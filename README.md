@@ -89,7 +89,7 @@ More detail, including design decisions, trade-offs and scaling notes, is in [do
 | **iPhone app** (`web/ios`) | Capacitor 8 (Swift Package Manager), local notifications with actionable Yes/No categories, native storage backup, iOS share sheet |
 | **Server** (`api/`) | Cloudflare Workers, Hono, D1 (SQLite), Durable Objects (WebSocket hibernation), Zod, cron triggers, Web Push written on the Web Crypto API |
 | **Encryption** | Web Crypto API on the device: HKDF-SHA256 key derivation, AES-256-GCM records, HMAC-SHA256 opaque ids |
-| **Quality** | Vitest (119 unit tests), an integration test that runs the real worker locally with D1, Durable Objects and a mock push service (23 checks), Playwright end-to-end tests (41 checks, including two users and a second device in real browsers, and the iPhone code paths behind a fake native shell), GitHub Actions CI |
+| **Quality** | Vitest (150 unit tests), an integration test that runs the real worker locally with D1, Durable Objects and a mock push service (23 checks), a privacy suite against the same real worker (54 checks), Playwright end-to-end tests (48 checks, including two users and a second device in real browsers, a three-browser privacy run, and the iPhone code paths behind a fake native shell), GitHub Actions CI |
 | **Hosting** | GitHub Pages (web) and Cloudflare Workers Free (API). Both cost €0. |
 
 ### Engineering highlights
@@ -98,6 +98,7 @@ More detail, including design decisions, trade-offs and scaling notes, is in [do
 - **End-to-end encrypted sync.** One random account key per user; HKDF derives an auth secret (the server stores its hash), an AES-GCM key and an HMAC key that never leave the device. Records sync with last-writer-wins, and a per-account sequence number is reserved in the same D1 transaction as the write, so no device can ever skip a change.
 - **Live updates for €0.** Each account has a Durable Object holding its WebSockets with the hibernation API (idle connections are free); the app authenticates with a WebSocket subprotocol because browsers can't send headers there.
 - **Friends without giving up privacy.** Only habits marked as shared are published, as a small snapshot. The server moves stale snapshots forward in the owner's time zone, so leaderboards, nudges and challenges stay correct even if a friend hasn't opened the app for days.
+- **Privacy is tested, not just promised.** A dedicated suite runs six simulated people against the real worker. It covers strangers, friends of friends, challenges, unfriending, invite codes, notifications and account deletion. At the end it checks every response, live message and push each person received for anything they shouldn't have seen. Run against the server code from before these protections were added, it caught 20 problems, and each is now fixed ([what's guaranteed and where it's tested](docs/PRIVACY.md#how-this-is-tested)).
 - **Declarative sync.** The app always sends the full desired schedule. The server replaces it in one transaction, and an unchanged schedule is skipped using a hash.
 - **Time-zone-correct scheduler.** Each reminder stores its next fire time in UTC, computed in the user's own zone with `Intl`, so DST and half-hour zones are handled. Each cron tick runs one indexed query instead of scanning every user. Habits already answered are skipped (`skipDates`).
 - **Fits the free tier.** Workers Free allows about 10 ms of CPU per cron run. Signed VAPID tokens are cached, and pushes are batched at 8 per tick. That is about 11,500 reminders a day, well within the free limits.
@@ -133,7 +134,8 @@ cd web && VITE_API_URL=http://localhost:8787 npm run dev
 npm run typecheck          # api + web + service worker
 npm test                   # unit tests (Vitest)
 npm run test:integration   # real worker + local D1 + cron + mock push service
-npm run test:e2e           # Playwright: UI flows, the full push flow, the iPhone app paths, friends + sync
+npm run test:privacy       # real worker: who can see what, live events, pushes, account deletion
+npm run test:e2e           # Playwright: UI flows, the full push flow, the iPhone app paths, friends + sync, privacy
 ```
 
 The friends test drives **three real browsers** against the real worker: two people sign up, connect through an invite link, check in, react, nudge and run a challenge, and the first person's laptop signs in with the account key and syncs everything, with changes showing up live on the other device.
@@ -160,9 +162,9 @@ tell-me/
 ├── api/                  Cloudflare Worker
 │   ├── src/              routes (reminders, accounts, sync, friends, challenges), LiveHub Durable Object,
 │   │                     scheduler, time zones, Web Push, D1 access
-│   ├── scripts/          one-command deploy, integration test, VAPID key generator
+│   ├── scripts/          one-command deploy, integration and privacy tests, VAPID key generator
 │   ├── migrations/       D1 schema
-│   └── test/             unit tests (+ scripts/integration-test.mjs)
+│   └── test/             unit tests (+ scripts/integration-test.mjs, scripts/privacy-test.mjs)
 ├── e2e/                  Playwright end-to-end tests and screenshot generator
 └── docs/                 deploy guide, iPhone guide, architecture, privacy, product case study
 ```

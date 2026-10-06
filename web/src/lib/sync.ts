@@ -120,18 +120,18 @@ async function run(): Promise<SyncResult> {
       const entries = await db.listOutbox(BATCH);
       if (entries.length === 0) break;
       const records = await Promise.all(entries.map((e) => encode(keys, e)));
-      await cloud.push(keys.auth, { records, ...(round === 0 && answered.length ? { answered } : {}) });
-      if (round === 0) answered.length = 0;
+      await cloud.push(keys.auth, { records });
       await db.removeFromOutbox(entries);
       result.pushed += records.length;
       if (entries.length < BATCH) break;
     }
-    if (answered.length) await cloud.push(keys.auth, { records: [], answered });
 
     // 2. pull
     let since = state.lastSeq;
+    let reminders = false;
     for (let round = 0; round < 200; round++) {
       const page = await cloud.pull(keys.auth, since);
+      reminders ||= page.reminders === true;
       const changes = (await Promise.all(page.records.map((r) => decode(keys, r)))).filter((c): c is db.RemoteChange => c !== null);
       result.applied += await db.applyRemote(changes);
       result.pulled += page.records.length;
@@ -140,7 +140,12 @@ async function run(): Promise<SyncResult> {
       if (!page.more) break;
     }
 
-    // 3. share with friends
+    // 3. which check-ins were just answered, so the account's other devices skip those reminders.
+    // Only sent when one of them has push reminders: otherwise it would only tell the server
+    // which habit an (encrypted) answer belongs to.
+    if (reminders && answered.length) await cloud.push(keys.auth, { records: [], answered });
+
+    // 4. share with friends
     const event = [...pendingNotes].reverse()[0];
     await publishShare(keys.auth, event ? { habitId: event.habitId, answer: event.answer } : undefined);
 

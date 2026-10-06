@@ -90,6 +90,7 @@ export async function syncPush(
   settings: Settings,
   now: Date,
   force = false,
+  signedIn = true,
 ): Promise<PushState> {
   if (!state.enabled || !state.deviceId || !state.token) return state;
   const reg = await registration();
@@ -101,6 +102,9 @@ export async function syncPush(
     subscription: sub.toJSON(),
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     reminders: buildReminders(habits, checkins, settings, now),
+    // Nobody signed in here: friends' notifications must stop reaching this device, even if the
+    // account couldn't be told when signing out (offline). The device unlinks itself.
+    ...(signedIn ? {} : { signedIn: false }),
   };
   const fingerprint = hash(JSON.stringify(body));
   const fresh = state.lastSyncAt && now.getTime() - Date.parse(state.lastSyncAt) < 12 * 3600_000;

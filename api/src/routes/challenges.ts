@@ -55,7 +55,9 @@ export async function listChallenges(db: D1Database, userId: string, now: number
   const habits = new Map<string, SharedHabitRow>();
   for (const h of habitRows!.results as unknown as SharedHabitRow[]) habits.set(`${h.user_id}:${h.habit_id}`, h);
 
-  const byId = new Map<string, { id: string; name: string; emoji: string; target: number; ownerId: string; createdAt: number; members: unknown[]; me: unknown }>();
+  type Member = { userId: string; name: string; emoji: string; status: 'member' | 'invited'; habit: ChallengeHabit | null; yes: number; done: boolean };
+  type ChallengeHabit = { id: string; name: string; emoji: string; color: string; today: string; week: string };
+  const byId = new Map<string, { id: string; name: string; emoji: string; target: number; ownerId: string; createdAt: number; members: Member[]; me: { status: string; habitId: string | null } | null }>();
   for (const r of memberRows!.results as unknown as MemberRow[]) {
     let ch = byId.get(r.challenge_id);
     if (!ch) {
@@ -65,7 +67,7 @@ export async function listChallenges(db: D1Database, userId: string, now: number
     const row = r.habit_id ? habits.get(`${r.user_id}:${r.habit_id}`) : undefined;
     const habit = row ? normalizeSharedHabit(row, r.time_zone, now) : null;
     const yes = yesThisWeek(habit);
-    const member = {
+    const member: Member = {
       userId: r.user_id,
       name: r.member_name,
       emoji: r.member_emoji,
@@ -78,7 +80,13 @@ export async function listChallenges(db: D1Database, userId: string, now: number
     if (r.user_id === userId) ch.me = { status: member.status, habitId: r.habit_id };
   }
   for (const ch of byId.values()) {
-    (ch.members as Array<{ yes: number; status: string }>).sort((a, b) => (a.status === b.status ? b.yes - a.yes : a.status === 'member' ? -1 : 1));
+    const joined = ch.me?.status === 'member';
+    ch.members = ch.members
+      // Someone who was invited but hasn't said yes is only shown to the organiser.
+      .filter((m) => m.status === 'member' || m.userId === userId || ch.ownerId === userId)
+      // Until you join (and share your own progress), you see who's in it, not how they're doing.
+      .map((m) => (joined || m.userId === userId ? m : { ...m, habit: null, yes: 0, done: false }))
+      .sort((a, b) => (a.status === b.status ? b.yes - a.yes : a.status === 'member' ? -1 : 1));
   }
   return [...byId.values()];
 }
@@ -149,10 +157,15 @@ challenges.post('/challenges/:id/join', async (c) => {
   if (!id.success || !body.success) return c.json({ error: 'Invalid request' }, 400);
   const db = c.env.DB;
   const row = await db
-    .prepare('SELECT joined_at FROM challenge_members WHERE challenge_id = ? AND user_id = ?')
+    .prepare('SELECT m.joined_at, ch.owner_id FROM challenge_members m JOIN challenges ch ON ch.id = m.challenge_id WHERE m.challenge_id = ? AND m.user_id = ?')
     .bind(id.data, user.id)
-    .first<{ joined_at: number | null }>();
+    .first<{ joined_at: number | null; owner_id: string }>();
   if (!row) return c.json({ error: 'This invite is no longer available.' }, 404);
+  // An invite is only good while you're still friends with the person who sent it.
+  if (row.joined_at === null && row.owner_id !== user.id && !(await areFriends(db, user.id, row.owner_id))) {
+    await db.batch([db.prepare('DELETE FROM challenge_members WHERE challenge_id = ? AND user_id = ?').bind(id.data, user.id), ...removeIfEmpty(db, id.data)]);
+    return c.json({ error: 'This invite is no longer available.' }, 404);
+  }
   if (!(await isSharedBy(db, user.id, body.data.habitId))) return c.json({ error: 'Share this habit with friends first.' }, 400);
   await db
     .prepare('UPDATE challenge_members SET habit_id = ?, joined_at = COALESCE(joined_at, ?) WHERE challenge_id = ? AND user_id = ?')
@@ -205,10 +218,11 @@ challenges.delete('/challenges/:id/membership', async (c) => {
   if (!id.success) return c.json({ error: 'Invalid request' }, 400);
   const db = c.env.DB;
   const others = (await memberIds(db, id.data)).filter((m) => m !== user.id);
-  await db.batch([
+  const [left] = await db.batch([
     db.prepare('DELETE FROM challenge_members WHERE challenge_id = ? AND user_id = ?').bind(id.data, user.id),
     ...removeIfEmpty(db, id.data),
   ]);
-  c.executionCtx.waitUntil(notifyUsers(c.env, [user.id, ...others], { t: 'challenges' }));
+  // Not in it: nothing changed, so the people in it aren't told anything.
+  if (left!.meta.changes) c.executionCtx.waitUntil(notifyUsers(c.env, [user.id, ...others], { t: 'challenges' }));
   return c.json({ ok: true });
 });

@@ -81,8 +81,6 @@ export interface SharedHabitView {
   week: string;
   weekStart: string;
   streak: number;
-  best: number;
-  updatedAt: number;
 }
 
 export interface WeekSummary {
@@ -164,7 +162,6 @@ export interface SharedHabitInput {
   askMin: number;
   week: string;
   streak: number;
-  best: number;
 }
 
 export interface ShareBody {
@@ -191,14 +188,14 @@ export const cloud = {
   unlinkDevice: (auth: string, deviceId: string) => request<{ ok: true }>(`/api/me/devices/${deviceId}`, { ...json('DELETE'), token: auth }),
 
   pull: (auth: string, since: number) =>
-    request<{ records: Array<SyncRecord & { s: number }>; seq: number; more: boolean }>(`/api/sync?since=${since}`, { token: auth }),
+    request<{ records: Array<SyncRecord & { s: number }>; seq: number; more: boolean; reminders?: boolean }>(`/api/sync?since=${since}`, { token: auth }),
   push: (auth: string, body: { records: SyncRecord[]; answered?: Array<{ habitId: string; date: string }> }) =>
     request<{ ok: true; seq: number; applied: number }>('/api/sync', { ...json('POST', body), token: auth }),
 
   invite: (code: string) => request<{ name: string; emoji: string }>(`/api/invite/${encodeURIComponent(code)}`),
   friends: (auth: string) => request<FriendsFeed>('/api/friends', { token: auth }),
   lookup: (auth: string, code: string) =>
-    request<{ user: { id: string; name: string; emoji: string }; isSelf: boolean; isFriend: boolean }>(
+    request<{ user: { name: string; emoji: string }; isSelf: boolean; isFriend: boolean }>(
       `/api/friends/lookup/${encodeURIComponent(code)}`,
       { token: auth },
     ),

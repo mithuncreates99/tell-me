@@ -40,10 +40,28 @@ export function Privacy() {
         </Block>
         <Block title="What friends can see">
           <p>
-            Only habits you mark as shared: their name and emoji, which days they're planned, today's answer, this week's Yes/No pattern
-            and your streak. Reasons, notes and your other habits are never shared.
+            Only habits you mark as shared: their name and emoji, when they're planned, today's answer, this week's Yes/No pattern and your
+            current streak. Reasons, notes, past weeks and your other habits are never shared.
           </p>
-          <p>Friends also see your display name, avatar and when you were last active. Reactions, nudges and challenges are visible to the people involved.</p>
+          <p>
+            Friends also see your display name, avatar and roughly when you were last active (to 15 minutes). They're only told about an
+            update when something they can see changed, so they can't tell when you open the app.
+          </p>
+          <p>A reaction or a nudge is seen only by the two people involved, not even by a friend you have in common.</p>
+        </Block>
+        <Block title="Challenges, friend codes and removing friends">
+          <p>
+            In a challenge, members see each other's progress on the one habit each picked, nothing else. Until you join, you see who's in
+            it but not how they're doing, and invites nobody answered yet are shown only to the organiser.
+          </p>
+          <p>
+            Anyone with your friend code can add you, so it works like a key: you can change it any time (old invite links stop working),
+            and guessing codes is limited.
+          </p>
+          <p>
+            Removing a friend works both ways at once: you stop seeing each other's habits, reactions and nudges, and each of you leaves the
+            challenges the other started. They aren't notified.
+          </p>
         </Block>
         <Block title="What the server stores">
           <p>
@@ -54,8 +72,13 @@ export function Privacy() {
         </Block>
         <Block title="Deleting your data">
           <p>
-            Settings → Account → Delete account removes everything the server stores about you, immediately. Turning reminders off deletes
-            your device from the reminder server. Erasing data in the app deletes it on every device signed in to your account.
+            Settings → Account → Delete account removes everything the server stores about you, immediately, and disconnects your other
+            devices. Turning reminders off deletes your device from the reminder server. Erasing data in the app deletes it on every device
+            signed in to your account.
+          </p>
+          <p>
+            Signing out removes the account's habits, answers and key from that device (on the iPhone, its backup and scheduled reminders
+            too) and stops friends' notifications reaching it, without deleting anything from your account.
           </p>
         </Block>
         <Block title="No ads, no tracking">

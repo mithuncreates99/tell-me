@@ -8,7 +8,12 @@ export type LiveEvent =
   | { t: 'challenges' }
   | { t: 'checkin'; from: Person; habit: HabitRef; answer: 'yes' | 'no' }
   | { t: 'nudge'; from: Person; habit: HabitRef }
-  | { t: 'reaction'; from: Person; habit: HabitRef; emoji: string; date: string };
+  | { t: 'reaction'; from: Person; habit: HabitRef; emoji: string; date: string }
+  /** The account was deleted (on another device): the server says so, then closes the connection. */
+  | { t: 'gone' };
+
+/** Close code the server uses when the account was deleted (on another device). */
+export const ACCOUNT_GONE = 4001;
 
 export interface Person {
   id: string;
@@ -52,17 +57,29 @@ export function connectLive(
     });
     ws.addEventListener('message', (e) => {
       if (typeof e.data !== 'string' || e.data === 'pong') return;
+      let event: LiveEvent;
       try {
-        onEvent(JSON.parse(e.data) as LiveEvent);
+        event = JSON.parse(e.data) as LiveEvent;
       } catch {
-        /* ignore malformed */
+        return; // ignore malformed
       }
+      if (event.t === 'gone') {
+        if (stopped) return;
+        stopped = true; // reconnecting can't work any more
+        onStatus('closed');
+      }
+      onEvent(event);
     });
-    ws.addEventListener('close', () => {
+    ws.addEventListener('close', (e) => {
       clearInterval(ping);
       ws = null;
       if (stopped) return;
       onStatus('closed');
+      if (e.code === ACCOUNT_GONE) {
+        stopped = true; // reconnecting can't work any more
+        onEvent({ t: 'gone' });
+        return;
+      }
       const delay = Math.min(30_000, 1000 * 2 ** attempt++) * (0.8 + Math.random() * 0.4);
       retry = setTimeout(connect, delay);
     });

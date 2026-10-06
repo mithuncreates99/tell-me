@@ -44,6 +44,24 @@ export class LiveHub extends DurableObject<Env> {
     return sent;
   }
 
+  /**
+   * The account was deleted: tell every open app at once, then close the connections (4001 also
+   * tells the app not to reconnect; the close itself can take a few seconds to arrive).
+   */
+  async disconnect(): Promise<number> {
+    const sockets = this.ctx.getWebSockets();
+    const gone = JSON.stringify({ t: 'gone' });
+    for (const ws of sockets) {
+      try {
+        ws.send(gone);
+        ws.close(4001, 'account deleted');
+      } catch {
+        /* already closing */
+      }
+    }
+    return sockets.length;
+  }
+
   override async webSocketMessage(): Promise<void> {
     // Clients only listen; "ping" is handled by the auto-response above.
   }

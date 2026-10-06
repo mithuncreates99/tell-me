@@ -39,6 +39,11 @@ export const putDeviceSchema = z.object({
     .array(reminderSchema)
     .max(64)
     .refine((rs) => isUnique(rs.map((r) => r.id)), 'duplicate reminder ids'),
+  /**
+   * false: nobody is signed in on this device, so friends' notifications must stop reaching it.
+   * (The device unlinks itself with its own token, so this works even after the account key is gone.)
+   */
+  signedIn: z.boolean().optional(),
 });
 
 export type PutDeviceBody = z.infer<typeof putDeviceSchema>;
@@ -116,7 +121,8 @@ export const shareSchema = z.object({
         askMin: z.number().int().min(0).max(2880),
         week: z.string().regex(/^[YNMPF.]{7}$/),
         streak: z.number().int().min(0).max(100_000),
-        best: z.number().int().min(0).max(100_000),
+        /** Sent by older versions of the app; ignored (nobody is shown it). */
+        best: z.number().int().min(0).max(100_000).optional(),
       }),
     )
     .max(20)
