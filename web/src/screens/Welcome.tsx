@@ -72,6 +72,10 @@ export function Welcome() {
           </li>
         ))}
       </ul>
+
+      <p className="animate-rise mt-8 px-1 text-[13px] text-ink-3" style={{ animationDelay: '240ms' }}>
+        Tell Me, built by Mithun
+      </p>
     </div>
   );
 }

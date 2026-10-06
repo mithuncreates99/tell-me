@@ -218,7 +218,7 @@ export function Settings() {
 
       <Section title="About">
         <p className="text-[15px]">
-          <b>Tell Me</b> <span className="text-ink-3">v{APP_VERSION}</span>
+          <b>Tell Me</b>, built by Mithun <span className="text-ink-3">· v{APP_VERSION}</span>
         </p>
         <p className="mt-1 text-[14px] text-ink-2">
           A habit tracker built around one question: did you show up? Local-first PWA (React + TypeScript) with end-to-end

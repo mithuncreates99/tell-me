@@ -345,6 +345,7 @@ export function App() {
           <ShieldCheck size={15} className="mt-px shrink-0" aria-hidden />
           {signedIn ? 'Synced with end-to-end encryption.' : 'Your habits and answers stay on this device.'}
         </p>
+        <p className="mt-3 px-2 text-[12px] text-ink-3">Tell Me, built by Mithun</p>
       </aside>
 
       <main className="mx-auto w-full max-w-3xl px-4 pb-32 pt-[calc(env(safe-area-inset-top)+16px)] md:px-10 md:pb-16 md:pt-10">
