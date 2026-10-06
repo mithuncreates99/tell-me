@@ -32,9 +32,31 @@ type Tx<S extends Stores[]> = IDBPTransaction<TellMeDB, S, 'readwrite'>;
 
 let dbName = 'tell-me';
 let dbPromise: Promise<IDBPDatabase<TellMeDB>> | null = null;
+let onBlocked: (() => void) | null = null;
+
+/** Called when an update to the database has to wait for an older Tell Me tab to close. */
+export function onUpgradeBlocked(fn: (() => void) | null): void {
+  onBlocked = fn;
+}
 
 export function db(): Promise<IDBPDatabase<TellMeDB>> {
   dbPromise ??= openDB<TellMeDB>(dbName, 2, {
+    // An older tab or service worker still has the previous version open: tell the user.
+    blocked() {
+      onBlocked?.();
+    },
+    // A newer version of the app wants to upgrade: step aside (and reload into the new version).
+    blocking() {
+      const current = dbPromise;
+      dbPromise = null;
+      void current?.then((d) => d.close());
+      // Pages reload into the new version; the service worker just lets go.
+      const page = globalThis as unknown as { document?: unknown; location?: { reload?: () => void } };
+      if (page.document) page.location?.reload?.();
+    },
+    terminated() {
+      dbPromise = null;
+    },
     upgrade(database, oldVersion) {
       if (oldVersion < 1) {
         database.createObjectStore('habits', { keyPath: 'id' });

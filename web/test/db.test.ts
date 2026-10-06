@@ -35,4 +35,21 @@ describe('IndexedDB storage', () => {
     expect(data.habits.map((h) => h.id)).toEqual(['gym']);
     expect(data.checkins).toHaveLength(1);
   });
+
+  it('reports an upgrade that has to wait for an older open tab, then continues', async () => {
+    await db.useDatabase('blocked-test');
+    const old = await new Promise<IDBDatabase>((resolve) => {
+      const req = indexedDB.open('blocked-test', 1);
+      req.onsuccess = () => resolve(req.result);
+    });
+    let blocked = false;
+    db.onUpgradeBlocked(() => (blocked = true));
+    const opening = db.db();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(blocked).toBe(true);
+    old.close(); // the old tab goes away
+    expect((await opening).version).toBe(2);
+    db.onUpgradeBlocked(null);
+    await db.useDatabase('tell-me');
+  });
 });

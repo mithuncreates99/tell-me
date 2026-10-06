@@ -1,12 +1,13 @@
 import { CalendarDays, ChartColumn, House, ListChecks, Settings as SettingsIcon, ShieldCheck, Users } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { ReasonSheet } from './components/Occurrence';
 import { Toast } from './components/Toast';
 import { Logo, cx } from './components/ui';
-import { onExternalChange } from './lib/db';
+import { onExternalChange, onUpgradeBlocked } from './lib/db';
 import { IS_NATIVE, loadNativeBackup, onNotificationAction, saveNativeBackup, syncLocalReminders } from './lib/native';
 import { IS_PREVIEW } from './lib/platform';
 import { pushBlocker, syncPush } from './lib/push';
+import { UPDATE_READY_EVENT } from './registerSW';
 import { navigate, useRoute, type Route } from './router';
 import { CreateAccount, SignIn } from './screens/AccountSetup';
 import { AddFriend } from './screens/AddFriend';
@@ -212,11 +213,16 @@ function useSocialLayer() {
 export function App() {
   const ready = useStore((s) => s.ready);
   const signedIn = useSocial((s) => !!s.account);
+  const [upgradeBlocked, setUpgradeBlocked] = useState(false);
   const theme = useStore((s) => s.settings.theme);
   const route = useRoute();
   const tab = tabFor(route);
 
   useEffect(() => {
+    onUpgradeBlocked(() => setUpgradeBlocked(true));
+    const onUpdate = () =>
+      useStore.getState().showToast('A new version of Tell Me is ready.', { action: { label: 'Reload', run: () => window.location.reload() } });
+    window.addEventListener(UPDATE_READY_EVENT, onUpdate);
     void useStore
       .getState()
       .init()
@@ -243,6 +249,8 @@ export function App() {
     };
     navigator.serviceWorker?.addEventListener('message', onSwMessage);
     return () => {
+      onUpgradeBlocked(null);
+      window.removeEventListener(UPDATE_READY_EVENT, onUpdate);
       clearInterval(tick);
       document.removeEventListener('visibilitychange', onVisible);
       offExternal();
@@ -294,10 +302,15 @@ export function App() {
 
   if (!ready) {
     return (
-      <div className="flex min-h-dvh items-center justify-center">
+      <div className="flex min-h-dvh flex-col items-center justify-center gap-5 px-6 text-center">
         <div className="animate-pulse">
           <Logo size={56} />
         </div>
+        {upgradeBlocked && (
+          <p className="max-w-xs text-[15px] text-ink-2" role="status">
+            Tell Me was updated. Close any other Tell Me tabs or windows and this one will open.
+          </p>
+        )}
       </div>
     );
   }
