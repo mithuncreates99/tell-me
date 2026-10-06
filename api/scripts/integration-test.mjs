@@ -296,6 +296,251 @@ try {
     assert.equal(sql(`SELECT COUNT(*) AS n FROM reminders WHERE device_id = '${deviceId}'`)[0].n, 0);
   });
 
+
+  // ======================= accounts, sync, friends, live =======================
+  const secret = () => b64url(randomBytes(32));
+  const authed = (path, token, init = {}) => api(path, { ...init, token });
+  const json = async (res) => {
+    const text = await res.text();
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error(`not JSON (${res.status}): ${text.slice(0, 200)}`);
+    }
+  };
+  /** A live connection, like an open app. */
+  const live = (token) => {
+    const messages = [];
+    const ws = new WebSocket(`ws://127.0.0.1:${API_PORT}/api/live`, ['tell-me.v1', `auth.${token}`]);
+    const opened = new Promise((resolve, reject) => {
+      ws.addEventListener('open', resolve, { once: true });
+      ws.addEventListener('error', () => reject(new Error('websocket error')), { once: true });
+    });
+    ws.addEventListener('message', (e) => messages.push(JSON.parse(String(e.data))));
+    return {
+      ws,
+      messages,
+      opened,
+      next: async (t) => {
+        for (let i = 0; i < 60; i++) {
+          const idx = messages.findIndex((m) => m.t === t);
+          if (idx >= 0) return messages.splice(idx, 1)[0];
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        throw new Error(`timed out waiting for live "${t}" event (got ${JSON.stringify(messages)})`);
+      },
+    };
+  };
+  const parisToday = today;
+  const weekStart = (() => {
+    const d = new Date(`${parisToday}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+    return d.toISOString().slice(0, 10);
+  })();
+  const todayIdx = (weekday + 6) % 7; // Monday-first index of today
+  const weekWith = (todayChar) => Array.from({ length: 7 }, (_, i) => (i < todayIdx ? 'Y' : i === todayIdx ? todayChar : 'F')).join('');
+  const habit = (id, name, emoji, todayChar, extra = {}) => ({
+    id, name, emoji, color: 'blue', days: [0, 1, 2, 3, 4, 5, 6], time: null, askMin: 0, week: weekWith(todayChar), streak: todayIdx, best: 9, ...extra,
+  });
+
+  const A = { token: secret() };
+  const B = { token: secret() };
+
+  await step('accounts: create (idempotent), read, reject unknown keys', async () => {
+    let res = await authed('/api/account', A.token, { method: 'POST', body: JSON.stringify({ name: 'Arun', emoji: '🦊', timeZone: 'Europe/Paris' }) });
+    assert.equal(res.status, 201);
+    A.profile = (await json(res)).profile;
+    assert.match(A.profile.friendCode, /^[A-Z2-9]{8}$/);
+    res = await authed('/api/account', A.token, { method: 'POST', body: JSON.stringify({ name: 'Arun', emoji: '🦊' }) });
+    assert.equal(res.status, 200);
+    assert.equal((await json(res)).profile.id, A.profile.id);
+    res = await authed('/api/account', B.token, { method: 'POST', body: JSON.stringify({ name: 'Bea', emoji: '🐼', timeZone: 'Europe/Paris' }) });
+    B.profile = (await json(res)).profile;
+    assert.equal((await json(await authed('/api/me', B.token))).profile.name, 'Bea');
+    assert.equal((await authed('/api/me', secret())).status, 401);
+    assert.equal((await api('/api/me')).status, 401);
+    res = await authed('/api/me', A.token, { method: 'PATCH', body: JSON.stringify({ name: 'Arun K' }) });
+    assert.equal((await json(res)).profile.name, 'Arun K');
+  });
+
+  await step('live: a WebSocket per account; bad credentials are refused', async () => {
+    A.live = live(A.token);
+    A.live2 = live(A.token); // a second device of Arun
+    B.live = live(B.token);
+    await Promise.all([A.live.opened, A.live2.opened, B.live.opened]);
+    await A.live.next('hello');
+    const bad = live(secret());
+    await assert.rejects(bad.opened);
+  });
+
+  const rec = (k, id, u, x, d = 0) => ({ k, id, u, d, x });
+  const opaque = (n) => b64url(randomBytes(16)) + n;
+
+  await step('sync: encrypted records, last writer wins, per-account sequence', async () => {
+    const h = opaque('h');
+    const c = opaque('c');
+    let res = await authed('/api/sync', A.token, { method: 'POST', body: JSON.stringify({ records: [rec('h', h, 100, b64url(randomBytes(40))), rec('c', c, 100, b64url(randomBytes(40)))] }) });
+    let body = await json(res);
+    assert.equal(res.status, 200, JSON.stringify(body));
+    assert.deepEqual([body.seq, body.applied], [2, 2]);
+    const evt = await A.live2.next('sync'); // the other device hears about it instantly
+    assert.equal(evt.seq, 2);
+    body = await json(await authed('/api/sync', A.token, { method: 'POST', body: JSON.stringify({ records: [rec('h', h, 50, 'b'.repeat(40))] }) }));
+    assert.equal(body.applied, 0, 'older write ignored');
+    body = await json(await authed('/api/sync', A.token, { method: 'POST', body: JSON.stringify({ records: [rec('h', h, 200, 'n'.repeat(40), 1)] }) }));
+    assert.deepEqual([body.seq, body.applied], [4, 1]);
+    let pull = await json(await authed('/api/sync?since=0', A.token));
+    assert.deepEqual(pull.records.map((r) => [r.k, r.s, r.u, r.d]), [['c', 2, 100, 0], ['h', 4, 200, 1]]);
+    assert.equal(pull.seq, 4);
+    pull = await json(await authed('/api/sync?since=2', A.token));
+    assert.equal(pull.records.length, 1);
+    assert.equal((await json(await authed('/api/sync?since=0', B.token))).records.length, 0, 'accounts are isolated');
+    assert.equal((await authed('/api/sync', A.token, { method: 'POST', body: JSON.stringify({ records: [rec('x', h, 1, 'a'.repeat(40))] }) })).status, 400);
+  });
+
+  await step('friends: look up a code, add (mutual), reject own and unknown codes', async () => {
+    const invite = await json(await api(`/api/invite/${B.profile.friendCode}`));
+    assert.deepEqual(invite, { name: 'Bea', emoji: '🐼' });
+    assert.equal((await api('/api/invite/ZZZZZZZZ')).status, 404);
+    const look = await json(await authed(`/api/friends/lookup/${B.profile.friendCode.toLowerCase()}`, A.token));
+    assert.deepEqual([look.user.name, look.isFriend, look.isSelf], ['Bea', false, false]);
+    let res = await authed('/api/friends', A.token, { method: 'POST', body: JSON.stringify({ code: B.profile.friendCode }) });
+    assert.equal(res.status, 201);
+    await B.live.next('friends');
+    const feedB = await json(await authed('/api/friends', B.token));
+    assert.deepEqual(feedB.friends.map((f) => f.name), ['Arun K']);
+    res = await authed('/api/friends', A.token, { method: 'POST', body: JSON.stringify({ code: A.profile.friendCode }) });
+    assert.equal(res.status, 400);
+    res = await authed('/api/friends', A.token, { method: 'POST', body: JSON.stringify({ code: 'ZZZZ-ZZZZ' }) });
+    assert.equal(res.status, 404);
+  });
+
+  // Bea turns on push reminders on her phone and links it to her account.
+  const beaDevice = { id: randomUUID().replace(/-/g, ''), token: secret(), ...newSubscription('bea-phone') };
+  await step('a push device can be linked to an account (only with its own token)', async () => {
+    let res = await api(`/api/devices/${beaDevice.id}`, {
+      method: 'PUT',
+      token: beaDevice.token,
+      body: JSON.stringify({
+        subscription: beaDevice.subscription,
+        timeZone: 'Europe/Paris',
+        reminders: [{ id: 'read', kind: 'checkin', title: 'Read', emoji: '📚', days: [0, 1, 2, 3, 4, 5, 6], time: '23:58', offsetMin: 0 }],
+      }),
+    });
+    assert.equal(res.status, 200);
+    res = await authed(`/api/me/devices/${beaDevice.id}`, B.token, { method: 'POST', body: JSON.stringify({ token: secret() }) });
+    assert.equal(res.status, 403);
+    res = await authed(`/api/me/devices/${beaDevice.id}`, B.token, { method: 'POST', body: JSON.stringify({ token: beaDevice.token }) });
+    assert.equal(res.status, 200);
+  });
+
+  await step('share: friends see the snapshot and a live check-in event', async () => {
+    const body = {
+      timeZone: 'Europe/Paris',
+      date: parisToday,
+      weekStart,
+      habits: [habit('gym', 'Gym', '🏋️', 'Y'), habit('read', 'Read', '📚', 'P')],
+      event: { habitId: 'gym', answer: 'yes' },
+    };
+    let res = await authed('/api/share', B.token, { method: 'PUT', body: JSON.stringify(body) });
+    assert.equal((await json(res)).changed, true);
+    const evt = await A.live.next('checkin');
+    assert.deepEqual([evt.from.name, evt.habit.name, evt.answer], ['Bea', 'Gym', 'yes']);
+    const feed = await json(await authed('/api/friends', A.token));
+    const bea = feed.friends[0];
+    assert.deepEqual(bea.habits.map((h) => [h.id, h.today]), [['gym', 'yes'], ['read', 'pending']]);
+    assert.equal(bea.week.yes, todayIdx * 2 + 1);
+    const { event: _e, ...again } = body;
+    res = await authed('/api/share', B.token, { method: 'PUT', body: JSON.stringify(again) });
+    assert.equal((await json(res)).changed, false, 'unchanged snapshots are ignored');
+    res = await authed('/api/share', B.token, { method: 'PUT', body: JSON.stringify({ ...again, date: '2020-01-06', weekStart: '2020-01-06' }) });
+    assert.equal(res.status, 400, 'snapshots must describe today');
+    res = await authed('/api/share', B.token, { method: 'PUT', body: JSON.stringify({ ...again, habits: [{ ...again.habits[0], days: [] }] }) });
+    assert.equal(res.status, 400, 'a shared habit is planned on at least one day');
+  });
+
+  await step('nudge: reaches the friend live and as a push, once per day', async () => {
+    received.length = 0;
+    let res = await authed('/api/nudges', A.token, { method: 'POST', body: JSON.stringify({ to: B.profile.id, habitId: 'read' }) });
+    assert.equal(res.status, 201, await res.clone().text());
+    const evt = await B.live.next('nudge');
+    assert.equal(evt.habit.name, 'Read');
+    await waitFor(() => received.some((r) => r.path === beaDevice.path), 'nudge push');
+    const push = received.find((r) => r.path === beaDevice.path);
+    assert.equal(push.payload.type, 'social');
+    assert.match(push.payload.title, /Arun K nudged you/);
+    res = await authed('/api/nudges', A.token, { method: 'POST', body: JSON.stringify({ to: B.profile.id, habitId: 'read' }) });
+    assert.equal(res.status, 429);
+    res = await authed('/api/nudges', A.token, { method: 'POST', body: JSON.stringify({ to: B.profile.id, habitId: 'gym' }) });
+    assert.equal(res.status, 409, 'already checked in');
+  });
+
+  await step('reactions: live + push the first time, shown in the feed', async () => {
+    received.length = 0;
+    let res = await authed('/api/reactions', A.token, { method: 'PUT', body: JSON.stringify({ to: B.profile.id, habitId: 'gym', date: parisToday, emoji: '🔥' }) });
+    assert.equal(res.status, 200, await res.clone().text());
+    assert.equal((await B.live.next('reaction')).emoji, '🔥');
+    await waitFor(() => received.length === 1, 'reaction push');
+    assert.match(received[0].payload.title, /reacted 🔥/);
+    res = await authed('/api/reactions', A.token, { method: 'PUT', body: JSON.stringify({ to: B.profile.id, habitId: 'gym', date: parisToday, emoji: '💪' }) });
+    await B.live.next('reaction');
+    await authed('/api/reactions', A.token, { method: 'PUT', body: JSON.stringify({ to: B.profile.id, habitId: 'gym', date: parisToday, emoji: null }) });
+    res = await authed('/api/reactions', A.token, { method: 'PUT', body: JSON.stringify({ to: B.profile.id, habitId: 'gym', date: parisToday, emoji: '💪' }) });
+    await B.live.next('reaction');
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(received.length, 1, 'changing, removing or re-adding a reaction does not push again');
+    const feed = await json(await authed('/api/friends', B.token));
+    assert.deepEqual(feed.reactions.map((r) => [r.from, r.emoji]), [[A.profile.id, '💪']]);
+    res = await authed('/api/reactions', A.token, { method: 'PUT', body: JSON.stringify({ to: B.profile.id, habitId: 'gym', date: parisToday, emoji: '👎' }) });
+    assert.equal(res.status, 400);
+  });
+
+  await step('answered on one device: the account\'s other devices skip that reminder', async () => {
+    const res = await authed('/api/sync', B.token, { method: 'POST', body: JSON.stringify({ answered: [{ habitId: 'read', date: parisToday }] }) });
+    assert.equal(res.status, 200);
+    const [r] = sql(`SELECT skip_dates, next_date FROM reminders WHERE device_id = '${beaDevice.id}' AND id = 'read'`);
+    assert.ok(r.skip_dates.includes(parisToday));
+    assert.notEqual(r.next_date, parisToday);
+  });
+
+  await step('challenges: create, invite, join with a shared habit, weekly progress, leave', async () => {
+    let res = await authed('/api/challenges', B.token, {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Gym 3x', emoji: '🏋️', target: 3, habitId: 'gym', invite: [A.profile.id] }),
+    });
+    assert.equal(res.status, 201, await res.clone().text());
+    const { id } = await json(res);
+    await A.live.next('challenges');
+    let list = (await json(await authed('/api/challenges', A.token))).challenges;
+    assert.equal(list[0].me.status, 'invited');
+    res = await authed(`/api/challenges/${id}/join`, A.token, { method: 'POST', body: JSON.stringify({ habitId: 'run' }) });
+    assert.equal(res.status, 400, 'must share the habit first');
+    await authed('/api/share', A.token, { method: 'PUT', body: JSON.stringify({ timeZone: 'Europe/Paris', date: parisToday, weekStart, habits: [habit('run', 'Run', '🏃', 'N')] }) });
+    res = await authed(`/api/challenges/${id}/join`, A.token, { method: 'POST', body: JSON.stringify({ habitId: 'run' }) });
+    assert.equal(res.status, 200);
+    list = (await json(await authed('/api/challenges', B.token))).challenges;
+    assert.deepEqual(list[0].members.map((m) => [m.name, m.status, m.yes]), [['Bea', 'member', todayIdx + 1], ['Arun K', 'member', todayIdx]]);
+    res = await authed(`/api/challenges/${id}/invite`, A.token, { method: 'POST', body: JSON.stringify({ friendIds: [B.profile.id] }) });
+    assert.equal(res.status, 403, 'only the organiser invites');
+    assert.equal(list[0].members[0].done, todayIdx + 1 >= 3);
+    await authed(`/api/challenges/${id}/membership`, A.token, { method: 'DELETE' });
+    await authed(`/api/challenges/${id}/membership`, B.token, { method: 'DELETE' });
+    assert.equal(sql(`SELECT COUNT(*) AS n FROM challenges WHERE id = '${id}'`)[0].n, 0, 'empty challenges disappear');
+  });
+
+  await step('delete account: everything about it is removed, friends are updated', async () => {
+    const res = await authed('/api/me', A.token, { method: 'DELETE' });
+    assert.equal(res.status, 200);
+    await B.live.next('friends');
+    assert.equal((await authed('/api/me', A.token)).status, 401);
+    assert.equal((await json(await authed('/api/friends', B.token))).friends.length, 0);
+    for (const table of ['sync_records', 'shared_habits']) {
+      assert.equal(sql(`SELECT COUNT(*) AS n FROM ${table} WHERE user_id = '${A.profile.id}'`)[0].n, 0, table);
+    }
+    assert.equal(sql(`SELECT COUNT(*) AS n FROM reactions WHERE from_id = '${A.profile.id}' OR to_id = '${A.profile.id}'`)[0].n, 0);
+    for (const l of [A.live, A.live2, B.live]) l.ws.close();
+  });
+
   console.log(`\nIntegration test passed: ${passed} checks.`);
 } catch (err) {
   exitCode = 1;

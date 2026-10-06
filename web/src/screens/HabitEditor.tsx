@@ -7,6 +7,7 @@ import { formatTime, hhmm, minutesOf, orderedWeekdays, weekdayName } from '../li
 import { EMOJI_CHOICES, suggestEmoji } from '../lib/emoji';
 import { HABIT_COLORS, type Habit, type HabitColor, type Weekday } from '../lib/types';
 import { navigate } from '../router';
+import { SOCIAL_AVAILABLE, useSocial } from '../store/useSocial';
 import { useStore } from '../store/useStore';
 
 interface Draft {
@@ -18,6 +19,7 @@ interface Draft {
   time: string;
   askAfterMin: number;
   remind: boolean;
+  shared: boolean;
 }
 
 const ASK_OPTIONS = [0, 15, 30, 60, 90, 120, 180];
@@ -39,6 +41,7 @@ export function HabitEditor({ id }: { id?: string }) {
   const setArchived = useStore((s) => s.setArchived);
   const showToast = useStore((s) => s.showToast);
   const remindersOn = useRemindersOn();
+  const signedIn = useSocial((s) => !!s.account);
   const existing = id ? habits.find((h) => h.id === id) : undefined;
   const [emojiTouched, setEmojiTouched] = useState(!!existing);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -53,8 +56,9 @@ export function HabitEditor({ id }: { id?: string }) {
           time: existing.time ?? '18:00',
           askAfterMin: existing.askAfterMin,
           remind: existing.remind,
+          shared: !!existing.shared,
         }
-      : { name: '', emoji: '✅', color: nextColor(habits), days: [1, 3, 5], hasTime: true, time: '18:00', askAfterMin: 60, remind: true },
+      : { name: '', emoji: '✅', color: nextColor(habits), days: [1, 3, 5], hasTime: true, time: '18:00', askAfterMin: 60, remind: true, shared: false },
   );
 
   if (id && !existing) {
@@ -83,6 +87,7 @@ export function HabitEditor({ id }: { id?: string }) {
       time: draft.hasTime ? draft.time : null,
       askAfterMin: draft.hasTime ? draft.askAfterMin : 0,
       remind: draft.remind,
+      shared: draft.shared,
     };
     if (existing) {
       await saveHabit({ ...existing, ...fields } as Habit);
@@ -242,6 +247,21 @@ export function HabitEditor({ id }: { id?: string }) {
               description={`Notification at ${askAt}${remindersOn ? '' : ' (turn reminders on in Settings)'}`}
             />
           </div>
+          {SOCIAL_AVAILABLE && (
+            <div className="border-t border-line">
+              <Toggle
+                checked={draft.shared}
+                onChange={(v) => set({ shared: v })}
+                disabled={!signedIn && !draft.shared}
+                label="Share with friends"
+                description={
+                  signedIn
+                    ? "Friends see this habit and this week's Yes/No. Reasons and notes stay private."
+                    : 'Create an account in Friends to share habits.'
+                }
+              />
+            </div>
+          )}
         </section>
 
         <Button type="submit" variant="primary" size="lg" disabled={!valid} className="mt-1 w-full">

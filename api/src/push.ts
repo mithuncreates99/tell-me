@@ -5,7 +5,9 @@ import { buildWebPushRequest } from './webpush';
 export type PushPayload =
   | { type: 'checkin'; habitId: string; date: string; title: string; emoji: string; time: string }
   | { type: 'weekly'; date: string }
-  | { type: 'test' };
+  | { type: 'test' }
+  /** Friends: nudges, reactions, invites. Title and body are ready to show. */
+  | { type: 'social'; title: string; body: string; path: string; tag: string };
 
 export interface PushTarget {
   endpoint: string;
@@ -31,6 +33,7 @@ const TTL_SECONDS: Record<PushPayload['type'], number> = {
   checkin: 4 * 60 * 60, // a "Did you go?" is still useful a few hours late
   weekly: 12 * 60 * 60,
   test: 10 * 60,
+  social: 3 * 60 * 60,
 };
 
 export function classifyStatus(status: number): PushOutcome {
@@ -50,7 +53,7 @@ export async function sendPush(env: Env, target: PushTarget, payload: PushPayloa
       {
         ttl: TTL_SECONDS[payload.type],
         urgency: payload.type === 'checkin' ? 'high' : 'normal',
-        topic: payload.type === 'checkin' ? topicFor(payload.habitId) : undefined,
+        topic: payload.type === 'checkin' ? topicFor(payload.habitId) : payload.type === 'social' ? topicFor(payload.tag, '') : undefined,
       },
     );
   } catch (err) {
@@ -69,6 +72,6 @@ export async function sendPush(env: Env, target: PushTarget, payload: PushPayloa
 }
 
 /** Push "Topic" header: a newer undelivered reminder for the same habit replaces the older one. */
-export function topicFor(habitId: string): string {
-  return `h-${habitId}`.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32);
+export function topicFor(id: string, prefix = 'h-'): string {
+  return `${prefix}${id}`.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32);
 }

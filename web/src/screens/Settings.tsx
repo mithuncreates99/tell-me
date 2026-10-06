@@ -1,5 +1,6 @@
-import { CalendarPlus, Code, Download, ExternalLink, MonitorSmartphone, RotateCcw, Sparkles, Trash2, Upload } from 'lucide-react';
+import { CalendarPlus, Code, Download, ExternalLink, MonitorSmartphone, RotateCcw, ShieldCheck, Sparkles, Trash2, Upload } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { AccountPanel } from '../components/AccountPanel';
 import { downloadCalendar, PushPanel } from '../components/PushPanel';
 import { Button, PageHeader, Segmented, Sheet, Toggle } from '../components/ui';
 import { orderedWeekdays, weekdayName } from '../lib/dates';
@@ -7,6 +8,7 @@ import { canInstall, onInstallAvailabilityChange, promptInstall } from '../lib/i
 import { IS_NATIVE, shareBackupFile } from '../lib/native';
 import { APP_VERSION, IS_PREVIEW, isIOS, isStandalone, REPO_URL } from '../lib/platform';
 import type { Weekday } from '../lib/types';
+import { useSocial } from '../store/useSocial';
 import { useStore } from '../store/useStore';
 
 function Section({ title, children, footer }: { title: string; children: ReactNode; footer?: ReactNode }) {
@@ -32,6 +34,7 @@ export function Settings() {
   const loadDemo = useStore((s) => s.loadDemo);
   const resetAll = useStore((s) => s.resetAll);
   const showToast = useStore((s) => s.showToast);
+  const signedIn = useSocial((s) => !!s.account);
   const [confirm, setConfirm] = useState<Confirm>(null);
   const [installable, setInstallable] = useState(canInstall());
   const fileRef = useRef<HTMLInputElement>(null);
@@ -58,7 +61,11 @@ export function Settings() {
     <div className="pb-8">
       <PageHeader eyebrow="Settings" title="Make it yours" />
 
-      <Section title="Reminders" footer="The reminder server only stores each habit's name, emoji and time. Your Yes/No answers stay on this device.">
+      <Section title="Account">
+        <AccountPanel />
+      </Section>
+
+      <Section title="Reminders" footer="The reminder server only stores each habit's name, emoji and time. It never sees your Yes/No answers.">
         <PushPanel />
         <div className="mt-4 border-t border-line pt-1">
           <Toggle
@@ -164,7 +171,14 @@ export function Settings() {
         </Section>
       )}
 
-      <Section title="Your data" footer="Everything is stored in this browser. Export a backup before clearing site data or switching phones.">
+      <Section
+        title="Your data"
+        footer={
+          signedIn
+            ? 'Synced to your account, end-to-end encrypted. You can still export a backup file any time.'
+            : 'Everything is stored in this browser. Export a backup before clearing site data, or create an account to sync it.'
+        }
+      >
         <div className="flex flex-wrap gap-2">
           {!IS_PREVIEW && (
             <Button variant="secondary" size="sm" onClick={download}>
@@ -191,9 +205,11 @@ export function Settings() {
               }
             }}
           />
-          <Button variant="secondary" size="sm" onClick={() => setConfirm('demo')}>
-            <Sparkles size={16} aria-hidden /> Load demo data
-          </Button>
+          {!signedIn && (
+            <Button variant="secondary" size="sm" onClick={() => setConfirm('demo')}>
+              <Sparkles size={16} aria-hidden /> Load demo data
+            </Button>
+          )}
           <Button variant="danger" size="sm" onClick={() => setConfirm('reset')}>
             <Trash2 size={16} aria-hidden /> Erase everything
           </Button>
@@ -205,14 +221,19 @@ export function Settings() {
           <b>Tell Me</b> <span className="text-ink-3">v{APP_VERSION}</span>
         </p>
         <p className="mt-1 text-[14px] text-ink-2">
-          A habit tracker built around one question: did you show up? Local-first PWA (React + TypeScript) with a serverless
-          push scheduler on Cloudflare Workers.
+          A habit tracker built around one question: did you show up? Local-first PWA (React + TypeScript) with end-to-end
+          encrypted sync, live friends features and a push scheduler on Cloudflare Workers.
         </p>
-        {REPO_URL && (
-          <a href={REPO_URL} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1.5 text-[14px] font-semibold text-brand">
-            <Code size={16} aria-hidden /> Source code <ExternalLink size={13} aria-hidden />
+        <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2">
+          <a href="#/privacy" className="inline-flex items-center gap-1.5 text-[14px] font-semibold text-brand">
+            <ShieldCheck size={16} aria-hidden /> Privacy
           </a>
-        )}
+          {REPO_URL && (
+            <a href={REPO_URL} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-[14px] font-semibold text-brand">
+              <Code size={16} aria-hidden /> Source code <ExternalLink size={13} aria-hidden />
+            </a>
+          )}
+        </div>
       </Section>
 
       <Sheet
@@ -223,7 +244,9 @@ export function Settings() {
         <p className="text-[15px] text-ink-2">
           {confirm === 'demo'
             ? 'This replaces your habits and history with 8 weeks of sample data, so you can explore the reports. Export a backup first if you want to keep your data.'
-            : 'This deletes all habits and check-ins on this device. It cannot be undone.'}
+            : signedIn
+              ? 'This deletes all habits and check-ins on every device signed in to your account. It cannot be undone.'
+              : 'This deletes all habits and check-ins on this device. It cannot be undone.'}
         </p>
         <div className="mt-5 flex gap-2">
           <Button variant="ghost" className="flex-1" onClick={() => setConfirm(null)}>
@@ -234,8 +257,12 @@ export function Settings() {
             className="flex-1"
             onClick={async () => {
               if (confirm === 'demo') {
-                await loadDemo();
-                showToast('Demo data loaded.');
+                try {
+                  await loadDemo();
+                  showToast('Demo data loaded.');
+                } catch (e) {
+                  showToast(e instanceof Error ? e.message : 'Could not load the demo.', { tone: 'bad' });
+                }
               } else {
                 await resetAll();
                 showToast('All data erased.');

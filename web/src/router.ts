@@ -14,7 +14,12 @@ export type Route =
   | { name: 'habit-edit'; id: string }
   | { name: 'settings' }
   | { name: 'checkin'; habitId: string; date?: string }
-  | { name: 'demo' };
+  | { name: 'demo' }
+  | { name: 'friends' }
+  | { name: 'account-new' }
+  | { name: 'account-signin' }
+  | { name: 'add-friend'; code: string }
+  | { name: 'privacy' };
 
 export function parseRoute(hash: string): Route {
   const parts = hash.replace(/^#\/?/, '').split('?')[0]!.split('/').filter(Boolean).map(decodeURIComponent);
@@ -35,6 +40,14 @@ export function parseRoute(hash: string): Route {
       return { name: 'today' };
     case 'demo':
       return { name: 'demo' };
+    case 'friends':
+      return { name: 'friends' };
+    case 'account':
+      return parts[1] === 'signin' ? { name: 'account-signin' } : { name: 'account-new' };
+    case 'add':
+      return parts[1] ? { name: 'add-friend', code: parts[1] } : { name: 'friends' };
+    case 'privacy':
+      return { name: 'privacy' };
     default:
       return { name: 'today' };
   }

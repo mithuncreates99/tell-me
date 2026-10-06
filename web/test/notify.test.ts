@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkinNotification, parsePushPayload, weeklyNotification } from '../src/lib/notify';
+import { checkinNotification, parsePushPayload, weeklyNotification, socialNotification } from '../src/lib/notify';
 import { checkin, habit } from './helpers';
 
 const payload = { type: 'checkin' as const, habitId: 'gym', date: '2026-10-05', title: 'Gym', emoji: '🏋️', time: '18:00' };
@@ -31,5 +31,17 @@ describe('notifications', () => {
     expect(weeklyNotification({ due: 12, yes: 9, prevRate: 0.5 }).title).toBe('📊 Your week: 9 of 12 (75%)');
     expect(weeklyNotification({ due: 12, yes: 9, prevRate: 0.5 }).options.body).toContain('Up 25 points');
     expect(weeklyNotification({ due: 0, yes: 0, prevRate: null }).title).toBe('📊 Your weekly report is ready');
+  });
+});
+
+describe('social notifications', () => {
+  it('shows nudges and reactions with the text the server sent, linking inside the app only', () => {
+    const p = parsePushPayload({ type: 'social', title: '🐼 Bea nudged you', body: '🏋️ Gym: did you show up today?', path: '#/', tag: 'nudge-gym' });
+    expect(p).toEqual({ type: 'social', title: '🐼 Bea nudged you', body: '🏋️ Gym: did you show up today?', path: '#/', tag: 'nudge-gym' });
+    const n = socialNotification(p as Extract<typeof p, { type: 'social' }>);
+    expect(n.title).toBe('🐼 Bea nudged you');
+    expect(n.options.data).toEqual({ kind: 'social', path: '#/' });
+    const outside = parsePushPayload({ type: 'social', title: 'x', path: 'https://evil.example' });
+    expect(outside).toMatchObject({ path: '#/friends' });
   });
 });

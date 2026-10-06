@@ -115,6 +115,24 @@ export async function loadNativeBackup(): Promise<BackupFile | null> {
 }
 
 /** Opens the iOS share sheet with the backup file (save to Files, AirDrop, Mail…). */
+const ACCOUNT_KEY = 'tell-me-account';
+
+/** The account key is mirrored to native storage too: iOS can clear a web view's IndexedDB. */
+export async function saveNativeAccount(account: unknown | null): Promise<void> {
+  if (account === null) await Preferences.remove({ key: ACCOUNT_KEY });
+  else await Preferences.set({ key: ACCOUNT_KEY, value: JSON.stringify(account) });
+}
+
+export async function loadNativeAccount<T>(): Promise<T | null> {
+  const { value } = await Preferences.get({ key: ACCOUNT_KEY });
+  if (!value) return null;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return null;
+  }
+}
+
 export async function shareBackupFile(backup: BackupFile): Promise<void> {
   const path = `tell-me-backup-${new Date().toISOString().slice(0, 10)}.json`;
   const { uri } = await Filesystem.writeFile({

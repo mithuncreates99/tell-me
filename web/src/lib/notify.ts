@@ -5,10 +5,11 @@ import type { Checkin, Habit } from './types';
 export type PushPayload =
   | { type: 'checkin'; habitId: string; date: string; title: string; emoji: string; time: string }
   | { type: 'weekly'; date: string }
-  | { type: 'test' };
+  | { type: 'test' }
+  | { type: 'social'; title: string; body: string; path: string; tag: string };
 
 export interface NotificationData {
-  kind: 'checkin' | 'weekly' | 'test';
+  kind: 'checkin' | 'weekly' | 'test' | 'social';
   habitId?: string;
   date?: string;
   /** Path inside the app, e.g. "#/checkin/abc/2026-10-05". */
@@ -41,6 +42,10 @@ export function parsePushPayload(raw: unknown): PushPayload | null {
     };
   }
   if (p.type === 'weekly') return { type: 'weekly', date: String(p.date ?? '') };
+  if (p.type === 'social' && typeof p.title === 'string') {
+    const path = typeof p.path === 'string' && p.path.startsWith('#/') ? p.path : '#/friends';
+    return { type: 'social', title: p.title.slice(0, 120), body: String(p.body ?? '').slice(0, 240), path, tag: String(p.tag ?? 'social').slice(0, 64) };
+  }
   if (p.type === 'test') return { type: 'test' };
   return null;
 }
@@ -93,6 +98,14 @@ export function weeklyNotification(summary: { due: number; yes: number; prevRate
   return {
     title,
     options: { body, tag: 'weekly-report', icon: ICON, badge: BADGE, data: { kind: 'weekly', path: '#/insights' } },
+  };
+}
+
+/** Friends: a nudge, a reaction, an invite. The server sends ready-made text. */
+export function socialNotification(p: Extract<PushPayload, { type: 'social' }>): NotificationSpec {
+  return {
+    title: p.title,
+    options: { body: p.body, tag: p.tag, icon: ICON, badge: BADGE, data: { kind: 'social', path: p.path } },
   };
 }
 

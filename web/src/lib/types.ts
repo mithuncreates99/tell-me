@@ -25,6 +25,10 @@ export interface Habit {
   /** From this day on the habit is paused/archived (history is kept). */
   archivedAt: ISODate | null;
   order: number;
+  /** Friends can see this habit and this week's Yes/No (needs an account). */
+  shared?: boolean;
+  /** Last change (ms since epoch), for syncing between devices: the newest edit wins. */
+  updatedAt?: number;
 }
 
 export type Answer = 'yes' | 'no';
@@ -42,6 +46,8 @@ export interface Checkin {
   /** ISO timestamp. */
   answeredAt: string;
   via: 'app' | 'notification';
+  /** Last change (ms since epoch), for syncing between devices. */
+  updatedAt?: number;
 }
 
 export interface PushState {

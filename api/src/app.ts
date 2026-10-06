@@ -5,18 +5,24 @@ import { isAllowedPushEndpoint } from './endpoints';
 import type { Env } from './env';
 import { sendPush } from './push';
 import { deleteDevice, deleteReminders, getDevice, insertReminder, upsertDevice, type DeviceRow } from './repo';
+import { account } from './routes/account';
+import { challenges } from './routes/challenges';
+import { friends } from './routes/friends';
+import { sync } from './routes/sync';
 import { computeNextFire, daysToMask } from './schedule';
-import { deviceIdSchema, putDeviceSchema, tokenSchema } from './validation';
+import { userByAuthHash, type AppEnv } from './users';
+import { authSecretSchema, deviceIdSchema, putDeviceSchema, tokenSchema } from './validation';
 
-type AppContext = Context<{ Bindings: Env }>;
+type AppContext = Context<AppEnv>;
 
-export const app = new Hono<{ Bindings: Env }>();
+export const app = new Hono<AppEnv>();
 
 app.use('/api/*', (c, next) => {
+  if (c.req.path === '/api/live') return next(); // WebSocket upgrade: CORS doesn't apply
   const allowed = (c.env.ALLOWED_ORIGINS ?? '*').split(',').map((o) => o.trim()).filter(Boolean);
   return cors({
     origin: allowed.includes('*') ? '*' : allowed,
-    allowMethods: ['GET', 'PUT', 'POST', 'DELETE', 'OPTIONS'],
+    allowMethods: ['GET', 'PUT', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowHeaders: ['Content-Type', 'Authorization'],
     maxAge: 86_400,
   })(c, next);
@@ -126,6 +132,27 @@ app.post('/api/devices/:id/test', async (c) => {
   const result = await sendPush(c.env, device, { type: 'test' });
   if (result.outcome === 'gone') await c.env.DB.batch(deleteDevice(c.env.DB, device.id));
   return c.json({ ok: result.outcome === 'ok', outcome: result.outcome, status: result.status }, result.outcome === 'ok' ? 200 : 502);
+});
+
+app.route('/api', account);
+app.route('/api', sync);
+app.route('/api', friends);
+app.route('/api', challenges);
+
+/**
+ * Live updates. Browsers can't set headers on a WebSocket, so the app sends its credentials as a
+ * subprotocol: `new WebSocket(url, ['tell-me.v1', 'auth.<secret>'])`. Each account's sockets live
+ * in its own LiveHub Durable Object.
+ */
+app.get('/api/live', async (c) => {
+  if (c.req.header('Upgrade')?.toLowerCase() !== 'websocket') return c.json({ error: 'Expected a WebSocket upgrade' }, 426);
+  const protocols = (c.req.header('Sec-WebSocket-Protocol') ?? '').split(',').map((p) => p.trim());
+  const secret = authSecretSchema.safeParse(protocols.find((p) => p.startsWith('auth.'))?.slice(5));
+  if (!protocols.includes('tell-me.v1') || !secret.success) return c.json({ error: 'Unauthorized' }, 401);
+  const user = await userByAuthHash(c.env.DB, await sha256Hex(secret.data));
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+  c.executionCtx.waitUntil(c.env.DB.prepare('UPDATE users SET last_seen_at = ? WHERE id = ?').bind(Date.now(), user.id).run());
+  return c.env.HUB.get(c.env.HUB.idFromName(user.id)).fetch(c.req.raw);
 });
 
 app.notFound((c) => c.json({ error: 'Not found' }, 404));

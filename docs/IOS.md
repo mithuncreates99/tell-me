@@ -55,7 +55,16 @@ TestFlight lets up to 10,000 people install your app from a link. It needs the [
 
 From the same App Store Connect page: add screenshots (the `docs/screenshots` set is a good start; Apple wants 6.9" iPhone sizes), a description, a support URL (your GitHub repo works), a privacy policy URL, and an age rating, then **Submit for Review**.
 
-For the privacy questions, the native app collects **no data**: there is no server, no analytics and no account. Everything stays on the phone.
+For the privacy questions: without an account, the native app collects **no data** (reminders are scheduled on the phone, there are no analytics). Accounts, sync and friends are optional; see [PRIVACY.md](PRIVACY.md) for exactly what the server stores. Synced habits are end-to-end encrypted.
+
+**Connecting the iPhone app to your server.** Accounts and friends need the server URL at build time. Put it in `web/.env.production` before `npm run ios`:
+
+```bash
+VITE_API_URL=https://tell-me-api.<your-subdomain>.workers.dev
+VITE_PUBLIC_URL=https://<your-username>.github.io/tell-me/
+```
+
+Friends' nudges and reactions arrive live while the app is open. (Remote push notifications on iPhone would need Apple's push service and a paid developer account; web push covers Android, desktop and Home Screen web apps.)
 
 ## 3. After you change the code
 

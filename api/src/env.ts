@@ -1,5 +1,9 @@
+import type { LiveHub } from './hub';
+
 export interface Env {
   DB: D1Database;
+  /** One Durable Object per account holds that account's live WebSocket connections. */
+  HUB: DurableObjectNamespace<LiveHub>;
   /** Public VAPID key (base64url, uncompressed P-256 point). Safe to share with browsers. */
   VAPID_PUBLIC_KEY: string;
   /** Private VAPID key (base64url "d" value). Set with `wrangler secret put VAPID_PRIVATE_KEY`. */

@@ -7,14 +7,11 @@ const publicRaw = new Uint8Array(await subtle.exportKey('raw', pair.publicKey));
 const publicKey = Buffer.from(publicRaw).toString('base64url');
 
 console.log(`
-VAPID keys generated.
+VAPID keys generated. (scripts/deploy.mjs does this for you automatically.)
 
-1) Public key  -> paste into wrangler.toml as VAPID_PUBLIC_KEY:
-   ${publicKey}
-
-2) Private key -> store as a secret (never commit it):
-   npx wrangler secret put VAPID_PRIVATE_KEY
-   then paste: ${jwk.d}
+To deploy by hand, store both as worker secrets (never commit the private key):
+   npx wrangler secret put VAPID_PUBLIC_KEY    then paste: ${publicKey}
+   npx wrangler secret put VAPID_PRIVATE_KEY   then paste: ${jwk.d}
 
 For local development put both in api/.dev.vars:
 VAPID_PUBLIC_KEY="${publicKey}"

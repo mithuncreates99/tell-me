@@ -1,4 +1,4 @@
-# Tell Me push-reminder service (Cloudflare Worker)
+# Tell Me server (Cloudflare Worker): reminders, accounts, encrypted sync, friends, live updates.
 # Docs: ../docs/DEPLOY.md
 name = "tell-me-api"
 main = "src/index.ts"
@@ -12,15 +12,25 @@ crons = ["* * * * *"]
 [[d1_databases]]
 binding = "DB"
 database_name = "tell-me"
-# Replace with the id printed by `npx wrangler d1 create tell-me`
+# Filled in automatically by scripts/deploy.mjs (or paste the id from `npx wrangler d1 create tell-me`)
 database_id = "00000000-0000-0000-0000-000000000000"
 migrations_dir = "migrations"
 
+# One LiveHub per account keeps its open WebSocket connections (live updates between devices
+# and friends). SQLite-backed Durable Objects are available on the Workers Free plan.
+[[durable_objects.bindings]]
+name = "HUB"
+class_name = "LiveHub"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["LiveHub"]
+
 [vars]
-# Public half of your VAPID key pair (from `npm run vapid`). The private half is a secret:
-#   npx wrangler secret put VAPID_PRIVATE_KEY
-VAPID_PUBLIC_KEY = "REPLACE_WITH_YOUR_VAPID_PUBLIC_KEY"
 # How push services can reach you (must be https: or mailto:), e.g. your repo URL
 VAPID_SUBJECT = "https://github.com/mithuncreates99/tell-me"
 # Comma-separated list of web origins allowed to call the API, e.g. "https://you.github.io"
 ALLOWED_ORIGINS = "*"
+
+# Secrets (set automatically by scripts/deploy.mjs, or with `npx wrangler secret put NAME`):
+#   VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY   (generate with `npm run vapid`)

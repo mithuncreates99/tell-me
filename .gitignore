@@ -6,3 +6,4 @@ dist-*/
 *.log
 .DS_Store
 coverage/
+api/wrangler.deploy.toml

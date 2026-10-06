@@ -1,10 +1,12 @@
 import { create } from 'zustand';
+import { loadAccount } from '../lib/account';
 import { nextColor } from '../lib/colors';
 import { todayISO } from '../lib/dates';
 import * as db from '../lib/db';
 import { buildDemoData } from '../lib/demo';
 import { newId } from '../lib/ids';
 import { checkinKey, toCheckinMap, type CheckinMap } from '../lib/schedule';
+import { noteAnswer } from '../lib/sync';
 import {
   DEFAULT_SETTINGS,
   type Answer,
@@ -32,6 +34,7 @@ export interface NewHabit {
   color?: HabitColor;
   askAfterMin?: number;
   remind?: boolean;
+  shared?: boolean;
 }
 
 interface State {
@@ -72,6 +75,16 @@ interface Actions {
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Called after every local change to habits or check-ins (the sync engine listens). */
+let changeListener: (() => void) | null = null;
+export function onLocalChange(fn: (() => void) | null): void {
+  changeListener = fn;
+}
+const changed = () => {
+  db.announceChange();
+  changeListener?.();
+};
 
 export const useStore = create<State & Actions>()((set, get) => ({
   ready: false,
@@ -124,6 +137,7 @@ export const useStore = create<State & Actions>()((set, get) => ({
         createdAt: today,
         archivedAt: null,
         order: ++order,
+        ...(h.shared ? { shared: true } : {}),
       };
       created.push(habit);
       all = [...all, habit];
@@ -131,14 +145,14 @@ export const useStore = create<State & Actions>()((set, get) => ({
     await db.putHabits(created);
     set({ habits: all, settings: { ...get().settings } });
     if (!get().settings.onboarded) await get().updateSettings({ onboarded: true });
-    db.announceChange();
+    changed();
     return created;
   },
 
   async saveHabit(habit) {
     await db.putHabit(habit);
     set({ habits: get().habits.map((h) => (h.id === habit.id ? habit : h)) });
-    db.announceChange();
+    changed();
   },
 
   async deleteHabit(id) {
@@ -146,7 +160,7 @@ export const useStore = create<State & Actions>()((set, get) => ({
     const checkins = new Map(get().checkins);
     for (const [key, c] of checkins) if (c.habitId === id) checkins.delete(key);
     set({ habits: get().habits.filter((h) => h.id !== id), checkins });
-    db.announceChange();
+    changed();
   },
 
   async setArchived(id, archived) {
@@ -164,7 +178,7 @@ export const useStore = create<State & Actions>()((set, get) => ({
     const reordered = list.map((h, order) => ({ ...h, order }));
     await db.putHabits(reordered);
     set({ habits: reordered });
-    db.announceChange();
+    changed();
   },
 
   async answer(habitId, date, answer, extra) {
@@ -182,7 +196,8 @@ export const useStore = create<State & Actions>()((set, get) => ({
     const checkins = new Map(get().checkins);
     checkins.set(checkin.id, checkin);
     set({ checkins, now: new Date() });
-    db.announceChange();
+    noteAnswer(habitId, date, answer);
+    changed();
   },
 
   async setReason(habitId, date, reason, note) {
@@ -193,7 +208,7 @@ export const useStore = create<State & Actions>()((set, get) => ({
     const checkins = new Map(get().checkins);
     checkins.set(updated.id, updated);
     set({ checkins });
-    db.announceChange();
+    changed();
   },
 
   async clearAnswer(habitId, date) {
@@ -202,7 +217,7 @@ export const useStore = create<State & Actions>()((set, get) => ({
     const checkins = new Map(get().checkins);
     checkins.delete(id);
     set({ checkins });
-    db.announceChange();
+    changed();
   },
 
   async updateSettings(patch) {
@@ -213,6 +228,8 @@ export const useStore = create<State & Actions>()((set, get) => ({
   },
 
   async loadDemo() {
+    // Sample data and a real account don't mix: the demo would replace your synced habits.
+    if (await loadAccount()) throw new Error('Sign out of your account to try the demo.');
     const { settings } = get();
     const demo = buildDemoData(settings);
     const next = { ...settings, onboarded: true };
@@ -245,15 +262,16 @@ export const useStore = create<State & Actions>()((set, get) => ({
     const settings = { ...get().settings, ...(data.settings ?? {}), push: get().settings.push, onboarded: true };
     await db.replaceAll({ habits, checkins, settings });
     set({ habits: habits.sort((a, b) => a.order - b.order), checkins: toCheckinMap(checkins), settings });
-    db.announceChange();
+    changed();
     return habits.length;
   },
 
+  /** Erases habits and check-ins (on every device, when signed in) and resets settings. */
   async resetAll() {
-    await db.clearAll();
+    await db.eraseData();
     set({ habits: [], checkins: new Map(), settings: { ...DEFAULT_SETTINGS, push: get().settings.push } });
     await db.saveSettings(get().settings);
-    db.announceChange();
+    changed();
   },
 
   showToast(message, opts) {

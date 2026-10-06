@@ -14,6 +14,7 @@ import * as db from './lib/db';
 import {
   checkinNotification,
   parsePushPayload,
+  socialNotification,
   testNotification,
   weeklyNotification,
   type NotificationData,
@@ -23,6 +24,7 @@ import { recordAnswerFromNotification } from './lib/notificationActions';
 import { buildReminders } from './lib/reminders';
 import { checkinKey, toCheckinMap } from './lib/schedule';
 import { compareWithLastWeek, rateOf, streakFor } from './lib/stats';
+import { noteAnswer, syncNow } from './lib/sync';
 
 declare const self: ServiceWorkerGlobalScope & { __WB_MANIFEST: Array<{ url: string; revision: string | null }> };
 
@@ -47,6 +49,7 @@ async function handlePush(data: PushMessageData | null): Promise<void> {
     return;
   }
   if (payload.type === 'test') return show(testNotification());
+  if (payload.type === 'social') return show(socialNotification(payload));
 
   const { habits, checkins, settings } = await db.loadAll();
   const map = toCheckinMap(checkins);
@@ -108,6 +111,9 @@ self.addEventListener('notificationclick', (event) => {
       if (await recordAnswerFromNotification(data, action)) {
         db.announceChange();
         await broadcast({ type: 'data-changed' });
+        // Signed in: sync right away, so other devices and friends see it without opening the app.
+        if (data?.habitId && data.date) noteAnswer(data.habitId, data.date, action as 'yes' | 'no');
+        await syncNow().catch(() => undefined);
         return;
       }
       if (action === 'yes' || action === 'no') return; // test notification, or a deleted habit

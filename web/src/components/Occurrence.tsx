@@ -6,8 +6,27 @@ import { IS_NATIVE, tapFeedback } from '../lib/native';
 import { askMinutes, checkinKey, type Occurrence } from '../lib/schedule';
 import { streakFor } from '../lib/stats';
 import { MISS_REASONS, type MissReason } from '../lib/types';
+import { useSocial } from '../store/useSocial';
 import { useStore } from '../store/useStore';
 import { Button, Chip, HabitBadge, Sheet, cx } from './ui';
+
+/** Friends' reactions to this check-in ("🔥 Bea"). */
+function FriendReactions({ habitId, date }: { habitId: string; date: string }) {
+  const feed = useSocial((s) => s.feed);
+  if (!feed) return null;
+  const mine = feed.reactions.filter((r) => r.to === feed.me.id && r.habitId === habitId && r.date === date);
+  if (mine.length === 0) return null;
+  const names = new Map(feed.friends.map((f) => [f.id, f.name]));
+  return (
+    <p className="mt-2.5 flex flex-wrap gap-1.5" aria-label="Reactions from friends">
+      {mine.map((r) => (
+        <span key={r.from} className="inline-flex h-7 items-center gap-1 rounded-full bg-surface-2 px-2.5 text-[13px] font-medium text-ink-2">
+          <span aria-hidden>{r.emoji}</span> {names.get(r.from) ?? 'A friend'}
+        </span>
+      ))}
+    </p>
+  );
+}
 
 /** Records an answer with the right feedback: a streak toast for Yes, the reason sheet for No. */
 export function useAnswer() {
@@ -105,6 +124,8 @@ export function OccurrenceCard({ o, showDate = false }: { o: Occurrence; showDat
           </div>
         )}
       </div>
+
+      {answered && o.habit.shared && <FriendReactions habitId={o.habit.id} date={o.date} />}
 
       {!answered && (
         <div className="mt-3.5 grid grid-cols-2 gap-2.5">

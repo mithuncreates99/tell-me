@@ -1,8 +1,8 @@
-import { Bell, ChevronRight, Flame, X } from 'lucide-react';
+import { Bell, CalendarDays, ChevronRight, Flame, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { DemoBanner } from '../components/DemoBanner';
 import { OccurrenceCard } from '../components/Occurrence';
-import { Button, EmptyState, PageHeader, ProgressRing, SectionTitle } from '../components/ui';
+import { Button, EmptyState, IconButton, PageHeader, ProgressRing, SectionTitle } from '../components/ui';
 import { WeekStrip } from '../components/WeekStrip';
 import { addDays, formatDate, formatTime, hhmm, relativeDay, todayISO } from '../lib/dates';
 import { useRemindersOn } from '../components/PushPanel';
@@ -70,6 +70,11 @@ export function Today() {
       <PageHeader
         eyebrow={formatDate(today, { weekday: 'long', day: 'numeric', month: 'long' })}
         title={`${greeting(now.getHours())}${settings.name ? `, ${settings.name}` : ''}`}
+        action={
+          <IconButton label="Calendar" onClick={() => navigate('/calendar')} className="md:hidden">
+            <CalendarDays size={21} />
+          </IconButton>
+        }
       />
       <DemoBanner />
 

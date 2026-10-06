@@ -1,4 +1,4 @@
-import { CalendarDays, ChartColumn, House, ListChecks, Settings as SettingsIcon, ShieldCheck } from 'lucide-react';
+import { CalendarDays, ChartColumn, House, ListChecks, Settings as SettingsIcon, ShieldCheck, Users } from 'lucide-react';
 import { useEffect } from 'react';
 import { ReasonSheet } from './components/Occurrence';
 import { Toast } from './components/Toast';
@@ -8,27 +8,39 @@ import { IS_NATIVE, loadNativeBackup, onNotificationAction, saveNativeBackup, sy
 import { IS_PREVIEW } from './lib/platform';
 import { pushBlocker, syncPush } from './lib/push';
 import { navigate, useRoute, type Route } from './router';
+import { CreateAccount, SignIn } from './screens/AccountSetup';
+import { AddFriend } from './screens/AddFriend';
 import { CalendarScreen } from './screens/CalendarScreen';
 import { CheckinScreen } from './screens/CheckinScreen';
+import { Friends } from './screens/Friends';
 import { HabitEditor } from './screens/HabitEditor';
 import { Habits } from './screens/Habits';
 import { Insights } from './screens/Insights';
+import { Privacy } from './screens/Privacy';
 import { Settings } from './screens/Settings';
 import { Today } from './screens/Today';
-import { useStore } from './store/useStore';
+import { useSocial } from './store/useSocial';
+import { onLocalChange, useStore } from './store/useStore';
 
-type Tab = 'today' | 'calendar' | 'insights' | 'habits' | 'settings';
+type Tab = 'today' | 'friends' | 'calendar' | 'insights' | 'habits' | 'settings';
 
-const TABS: Array<{ id: Tab; path: string; label: string; icon: typeof House }> = [
-  { id: 'today', path: '/', label: 'Today', icon: House },
-  { id: 'calendar', path: '/calendar', label: 'Calendar', icon: CalendarDays },
-  { id: 'insights', path: '/insights', label: 'Report', icon: ChartColumn },
-  { id: 'habits', path: '/habits', label: 'Habits', icon: ListChecks },
-  { id: 'settings', path: '/settings', label: 'Settings', icon: SettingsIcon },
+/** Calendar lives in the desktop sidebar; on phones it's a button on Today, so the bar keeps five tabs. */
+const TABS: Array<{ id: Tab; path: string; label: string; icon: typeof House; mobile: boolean }> = [
+  { id: 'today', path: '/', label: 'Today', icon: House, mobile: true },
+  { id: 'friends', path: '/friends', label: 'Friends', icon: Users, mobile: true },
+  { id: 'calendar', path: '/calendar', label: 'Calendar', icon: CalendarDays, mobile: false },
+  { id: 'insights', path: '/insights', label: 'Report', icon: ChartColumn, mobile: true },
+  { id: 'habits', path: '/habits', label: 'Habits', icon: ListChecks, mobile: true },
+  { id: 'settings', path: '/settings', label: 'Settings', icon: SettingsIcon, mobile: true },
 ];
 
 function tabFor(route: Route): Tab {
   switch (route.name) {
+    case 'friends':
+    case 'add-friend':
+    case 'account-new':
+    case 'account-signin':
+      return 'friends';
     case 'calendar':
       return 'calendar';
     case 'insights':
@@ -39,6 +51,7 @@ function tabFor(route: Route): Tab {
     case 'habit-edit':
       return 'habits';
     case 'settings':
+    case 'privacy':
       return 'settings';
     default:
       return 'today';
@@ -62,6 +75,16 @@ function Screen({ route }: { route: Route }) {
       return <Settings />;
     case 'checkin':
       return <CheckinScreen habitId={route.habitId} date={route.date} />;
+    case 'friends':
+      return <Friends />;
+    case 'account-new':
+      return <CreateAccount />;
+    case 'account-signin':
+      return <SignIn />;
+    case 'add-friend':
+      return <AddFriend key={route.code} code={route.code} />;
+    case 'privacy':
+      return <Privacy />;
     default:
       return <Today />;
   }
@@ -141,8 +164,54 @@ function useNativeApp() {
   }, []);
 }
 
+/**
+ * Accounts: load the account, sync after every local change, keep the live connection open
+ * while the app is on screen, and link this device's push subscription for friends' nudges.
+ */
+function useSocialLayer() {
+  const ready = useStore((s) => s.ready);
+  const accountKey = useSocial((s) => s.account?.key);
+  const pushEnabled = useStore((s) => s.settings.push.enabled);
+  const pushDevice = useStore((s) => s.settings.push.deviceId);
+
+  useEffect(() => {
+    if (!ready) return;
+    void useSocial.getState().load();
+    onLocalChange(() => useSocial.getState().scheduleSync());
+    return () => onLocalChange(null);
+  }, [ready]);
+
+  useEffect(() => {
+    if (!accountKey) return;
+    const social = useSocial.getState();
+    const update = () => {
+      if (document.visibilityState === 'visible') {
+        void social.startLive();
+        social.scheduleSync(300);
+      } else {
+        social.stopLive();
+      }
+    };
+    update();
+    const every5min = setInterval(() => document.visibilityState === 'visible' && social.scheduleSync(0), 5 * 60_000);
+    document.addEventListener('visibilitychange', update);
+    window.addEventListener('online', update);
+    return () => {
+      clearInterval(every5min);
+      document.removeEventListener('visibilitychange', update);
+      window.removeEventListener('online', update);
+      social.stopLive();
+    };
+  }, [accountKey]);
+
+  useEffect(() => {
+    if (accountKey) void useSocial.getState().linkPushDevice();
+  }, [accountKey, pushEnabled, pushDevice]);
+}
+
 export function App() {
   const ready = useStore((s) => s.ready);
+  const signedIn = useSocial((s) => !!s.account);
   const theme = useStore((s) => s.settings.theme);
   const route = useRoute();
   const tab = tabFor(route);
@@ -206,8 +275,12 @@ export function App() {
     const { habits, loadDemo, showToast } = useStore.getState();
     void (async () => {
       if (habits.length === 0) {
-        await loadDemo();
-        showToast('Demo loaded: 8 weeks of sample check-ins. Erase it any time in Settings.');
+        try {
+          await loadDemo();
+          showToast('Demo loaded: 8 weeks of sample check-ins. Erase it any time in Settings.');
+        } catch (e) {
+          showToast(e instanceof Error ? e.message : 'The demo could not be loaded.');
+        }
       } else {
         showToast('You already have habits, so the demo was not loaded.');
       }
@@ -217,6 +290,7 @@ export function App() {
 
   usePushSync();
   useNativeApp();
+  useSocialLayer();
 
   if (!ready) {
     return (
@@ -252,7 +326,7 @@ export function App() {
         </nav>
         <p className="mt-auto flex items-start gap-2 px-2 text-[12px] leading-snug text-ink-3">
           <ShieldCheck size={15} className="mt-px shrink-0" aria-hidden />
-          Your habits and answers stay on this device.
+          {signedIn ? 'Synced with end-to-end encryption.' : 'Your habits and answers stay on this device.'}
         </p>
       </aside>
 
@@ -265,7 +339,7 @@ export function App() {
         className="safe-bottom fixed inset-x-0 bottom-0 z-40 border-t border-line bg-[color-mix(in_oklab,var(--surface)_88%,transparent)] backdrop-blur-xl md:hidden"
       >
         <div className="mx-auto grid max-w-lg grid-cols-5">
-          {TABS.map((t) => (
+          {TABS.filter((t) => t.mobile).map((t) => (
             <a
               key={t.id}
               href={`#${t.path}`}
