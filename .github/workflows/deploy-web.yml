@@ -27,14 +27,25 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: npm ci
         working-directory: web
+      - name: Find the server URL
+        id: server
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: echo "url=$(node api/scripts/server-url.mjs)" >> "$GITHUB_OUTPUT"
       - name: Build
         working-directory: web
-        run: npm run build
         env:
-          # Set this repository variable to your worker URL, e.g. https://tell-me-api.<you>.workers.dev
-          VITE_API_URL: ${{ vars.VITE_API_URL }}
+          # The deployed worker (found above), else the VITE_API_URL repository variable,
+          # else whatever web/.env.production says.
+          API: ${{ steps.server.outputs.url || vars.VITE_API_URL }}
           VITE_REPO_URL: ${{ github.server_url }}/${{ github.repository }}
           SITE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+          VITE_PUBLIC_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+        run: |
+          if [ -n "$API" ]; then export VITE_API_URL="$API"; fi
+          echo "Server: ${API:-from web/.env.production}"
+          npm run build
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5
         with:

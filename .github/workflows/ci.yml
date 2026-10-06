@@ -38,5 +38,5 @@ jobs:
       - name: Install Chromium for end-to-end tests
         run: npx playwright install --with-deps chromium
 
-      - name: End-to-end tests (UI + full push flow)
+      - name: End-to-end tests (UI, iPhone app, push flow, friends + sync)
         run: npm run test:e2e
