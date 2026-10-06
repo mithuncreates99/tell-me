@@ -62,7 +62,18 @@ export function atMinutes(date: ISODate, minutes: number): Date {
 export const orderedWeekdays = (weekStartsOn: 0 | 1): Weekday[] =>
   [0, 1, 2, 3, 4, 5, 6].map((i) => ((i + weekStartsOn) % 7) as Weekday);
 
-const locale = () => (typeof navigator !== 'undefined' ? navigator.language : 'en-GB');
+/**
+ * The browser's language, if Intl accepts it. Some systems report tags such as "en-US@posix",
+ * which Intl rejects with a RangeError; those fall back to the default language instead of crashing.
+ */
+function locale(): string | undefined {
+  const tag = typeof navigator !== 'undefined' ? navigator.language : 'en-GB';
+  try {
+    return Intl.DateTimeFormat.supportedLocalesOf(tag).length > 0 ? tag : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export function weekdayName(d: Weekday, style: 'long' | 'short' | 'narrow' = 'short'): string {
   // 2026-10-04 is a Sunday

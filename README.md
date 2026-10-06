@@ -89,7 +89,7 @@ More detail, including design decisions, trade-offs and scaling notes, is in [do
 | **iPhone app** (`web/ios`) | Capacitor 8 (Swift Package Manager), local notifications with actionable Yes/No categories, native storage backup, iOS share sheet |
 | **Server** (`api/`) | Cloudflare Workers, Hono, D1 (SQLite), Durable Objects (WebSocket hibernation), Zod, cron triggers, Web Push written on the Web Crypto API |
 | **Encryption** | Web Crypto API on the device: HKDF-SHA256 key derivation, AES-256-GCM records, HMAC-SHA256 opaque ids |
-| **Quality** | Vitest (150 unit tests), an integration test that runs the real worker locally with D1, Durable Objects and a mock push service (23 checks), a privacy suite against the same real worker (54 checks), Playwright end-to-end tests (48 checks, including two users and a second device in real browsers, a three-browser privacy run, and the iPhone code paths behind a fake native shell), GitHub Actions CI |
+| **Quality** | Vitest (152 unit tests), an integration test that runs the real worker locally with D1, Durable Objects and a mock push service (23 checks), a privacy suite against the same real worker (54 checks), Playwright end-to-end tests (48 checks, including two users and a second device in real browsers, a three-browser privacy run, and the iPhone code paths behind a fake native shell), GitHub Actions CI |
 | **Hosting** | GitHub Pages (web) and Cloudflare Workers Free (API). Both cost €0. |
 
 ### Engineering highlights
