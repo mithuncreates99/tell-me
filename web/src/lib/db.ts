@@ -45,12 +45,14 @@ export function db(): Promise<IDBPDatabase<TellMeDB>> {
     blocked() {
       onBlocked?.();
     },
-    // A newer version of the app wants to upgrade: step aside (and reload into the new version).
-    blocking() {
+    // Something else needs the database: step aside. The next call to db() reopens it.
+    blocking(_currentVersion, blockedVersion) {
       const current = dbPromise;
       dbPromise = null;
       void current?.then((d) => d.close());
-      // Pages reload into the new version; the service worker just lets go.
+      // A newer version of the app is upgrading it: pages reload into that version, the service
+      // worker just lets go. (A null version means the database is being deleted, not upgraded.)
+      if (blockedVersion === null) return;
       const page = globalThis as unknown as { document?: unknown; location?: { reload?: () => void } };
       if (page.document) page.location?.reload?.();
     },

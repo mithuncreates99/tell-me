@@ -1,5 +1,5 @@
 import 'fake-indexeddb/auto';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as db from '../src/lib/db';
 import { checkin, habit } from './helpers';
 
@@ -51,5 +51,46 @@ describe('IndexedDB storage', () => {
     expect((await opening).version).toBe(2);
     db.onUpgradeBlocked(null);
     await db.useDatabase('tell-me');
+  });
+
+  describe('when another tab needs the database', () => {
+    const reload = vi.fn();
+    beforeEach(() => {
+      reload.mockReset();
+      vi.stubGlobal('document', {});
+      vi.stubGlobal('location', { reload });
+    });
+    afterEach(async () => {
+      vi.unstubAllGlobals();
+      await db.useDatabase('tell-me');
+    });
+
+    it('reloads into a newer version of the app that upgrades it', async () => {
+      await db.useDatabase('upgrade-test');
+      await db.putHabits([habit()]);
+      const newer = await new Promise<IDBDatabase>((resolve) => {
+        const req = indexedDB.open('upgrade-test', 3);
+        req.onsuccess = () => resolve(req.result);
+      });
+      expect(reload).toHaveBeenCalledTimes(1);
+      newer.close();
+      await new Promise<void>((resolve) => {
+        const req = indexedDB.deleteDatabase('upgrade-test');
+        req.onsuccess = () => resolve();
+      });
+    });
+
+    it("steps aside without reloading when it's deleted, then starts fresh", async () => {
+      await db.useDatabase('delete-test');
+      await db.putHabits([habit()]);
+      await new Promise<void>((resolve, reject) => {
+        const req = indexedDB.deleteDatabase('delete-test');
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+      });
+      expect(reload).not.toHaveBeenCalled();
+      expect((await db.loadAll()).habits).toEqual([]);
+      await db.clearAll();
+    });
   });
 });
