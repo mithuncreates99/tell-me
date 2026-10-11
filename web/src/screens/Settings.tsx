@@ -65,7 +65,7 @@ export function Settings() {
         <AccountPanel />
       </Section>
 
-      <Section title="Reminders" footer="The reminder server only stores each habit's name, emoji and time. It never sees your Yes/No answers.">
+      <Section title="Reminders" footer="The reminder server only stores each habit's name, emoji and reminder times. It never sees your Yes/No answers.">
         <PushPanel />
         <div className="mt-4 border-t border-line pt-1">
           <Toggle

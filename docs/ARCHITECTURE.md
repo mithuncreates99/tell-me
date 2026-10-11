@@ -36,7 +36,7 @@ flowchart LR
 
 | Store | Key | Contents |
 | --- | --- | --- |
-| `habits` | `id` | name, emoji, color, weekdays, planned time, "ask after" minutes, reminders on/off, created/archived dates |
+| `habits` | `id` | name, emoji, color, weekdays, planned time, "ask after" minutes, reminders on/off, stronger reminder on/off, created/archived dates |
 | `checkins` | `habitId:date` | `yes` / `no`, optional reason and note, when, and whether it came from the app or a notification |
 | `kv` | `settings`, `account`, `sync`, `share` | settings (week start, weekly report, theme, push device id and token); the account key and profile; the last sync sequence number; the fingerprint of the last shared snapshot |
 | `outbox` | `kind:id` | changes waiting to be uploaded (only written while signed in): kind, id, timestamp, deleted? |
@@ -48,7 +48,7 @@ One answer per habit per day (`habitId:date`) makes check-ins idempotent: answer
 | Table | Contents |
 | --- | --- |
 | `devices` | random device id, SHA-256 of the device token, push subscription (endpoint and keys), IANA time zone |
-| `reminders` | per device: habit id, title, emoji, weekday bitmask, planned time, offset, `skip_dates`, **`next_fire_at`** (UTC, indexed), `next_date` |
+| `reminders` | per device: habit id, title, emoji, weekday bitmask, planned time, offset, `skip_dates`, follow-up minutes, **`next_fire_at`** (UTC, indexed), `next_date`, and whether that next push is the second ask (`api/migrations/0003_follow_up.sql`) |
 | `users` | random id, SHA-256 of the auth secret, display name, avatar emoji, friend code, time zone, per-account sync sequence (`api/migrations/0002_social.sql`) |
 | `sync_records` | per account: kind, **opaque id** (HMAC), sequence number, client timestamp, deleted?, **AES-GCM ciphertext** |
 | `shared_habits` | the published snapshot of each habit a user shares: name, emoji, days, check-in time, this week's pattern (`YNMPF.`), streak |
@@ -82,6 +82,7 @@ SELECT … FROM reminders JOIN devices … WHERE next_fire_at <= :now ORDER BY n
 Thanks to the index, a tick reads only the rows that are due. That matters because D1's free tier counts rows *scanned*. For each due reminder the handler:
 
 - sends the push and computes the next fire time
+- for a **stronger reminder**, that next push is the second ask 30 minutes later (marked `followUp`, and `insist` so the notification stays on screen), unless the check-in has been answered by then: answered dates are skipped entirely
 - **404/410** (subscription gone): deletes the device
 - **429/5xx** (temporary): leaves it due and retries on the next ticks for up to 15 minutes
 - **more than 3 hours late** (e.g. after an outage): skips it instead of nagging at the wrong time
@@ -134,6 +135,8 @@ On the server (`api/src/routes/sync.ts`), a push is **one D1 batch, which is a t
 The push also carries `answered: [{habitId, date}]`, so the account's other devices drop that day's reminder (`skip_dates`): answer on the laptop and the phone won't ask. Only the fact that a check-in happened is shared there, never the answer.
 
 Sync runs after every change (debounced), when the app comes to the foreground, every 5 minutes while open, and when the live connection says another device changed something. Calls during a running sync are folded into one follow-up run.
+
+**Starter habits** (`web/src/lib/starter.ts`). Every device adds three water check-ins once: for an existing user on the next start, for a new user with their first habit, never into the sample data. They use fixed ids and one fixed `updatedAt` on every device, so two devices can't create two sets, and any real edit or deletion (always newer) wins under last-writer-wins. A signed-in device first asks `POST /api/sync/has` whether the account has, or had, any of those opaque record ids: if the user deleted one on another device, this device doesn't add it back, even when it pulled that deletion before it had the new code.
 
 ### 10. Sharing with friends
 Friends need something the server *can* read, so sharing is opt-in per habit (`habit.shared`). After each sync the app builds a snapshot (`web/src/lib/share.ts`) of the shared habits only: name, emoji, days, check-in time, **this week's pattern** as 7 characters (`Y` yes, `N` no, `M` missed, `P` due today, `F` later, `.` rest) and the streak. Reasons, notes and private habits are never included. `PUT /api/share` replaces the user's snapshot declaratively; unchanged snapshots are skipped by fingerprint on both sides.
@@ -224,9 +227,10 @@ The client reconnects with exponential backoff and, on every (re)connect, runs a
 
 | Layer | What | Where |
 | --- | --- | --- |
-| Unit (116) | parser, schedule, stats, insights, ICS, reminders, notifications, IndexedDB (fake-indexeddb), time zones and DST, scheduler, validation, Web Push encryption checked against Mozilla's reference decryptor, VAPID signature; key derivation checked against Node's own HKDF, encryption and opaque ids, the sync engine with two simulated devices (conflicts, deletes, pending edits), shared-snapshot normalization | `web/test`, `api/test` |
-| Integration (23) | real worker in `wrangler dev` with local D1 + Durable Objects + cron trigger + a mock push service that decrypts every message: reminders, accounts, encrypted sync with last-writer-wins, live WebSocket events, friends, nudges and reactions delivered as pushes, challenges, account deletion | `api/scripts/integration-test.mjs` |
-| End-to-end (41) | **Two people and a laptop** in real browsers against the real worker: sign-up, invite link, live check-ins, reactions, nudges, a weekly challenge, signing in on a second device with the key, a change on one device appearing live on the other, sign-out. Plus the single-user flows: onboarding → quick add → Yes/undo → No + reason → edit → import → demo → report → calendar → deep link → accessibility names → no horizontal overflow at 360 px; the **full push flow** (real app + real service worker + real worker, push delivered to the service worker via the Chrome DevTools Protocol); and the **iPhone app paths** behind a fake native shell (scheduling, Yes/No buttons, restore from native backup) | `e2e/` |
+| Unit (181) | parser, schedule, stats, insights, ICS, reminders, notifications, IndexedDB (fake-indexeddb), time zones and DST, scheduler, validation, Web Push encryption checked against Mozilla's reference decryptor, VAPID signature; key derivation checked against Node's own HKDF, encryption and opaque ids, the sync engine with two simulated devices (conflicts, deletes, pending edits), the starter habits across devices (no duplicates, a deletion is never undone), follow-up scheduling, shared-snapshot normalization | `web/test`, `api/test` |
+| Integration (25) | real worker in `wrangler dev` with local D1 + Durable Objects + cron trigger + a mock push service that decrypts every message: reminders and their follow-up asks, accounts, encrypted sync with last-writer-wins, live WebSocket events, friends, nudges and reactions delivered as pushes, challenges, account deletion | `api/scripts/integration-test.mjs` |
+| Privacy (54) | six simulated people against the real worker: friends, a friend of a friend, a stranger and a code guesser; every response, live event and push each one receives is checked | `api/scripts/privacy-test.mjs` |
+| End-to-end (56) | **Two people and a laptop** in real browsers against the real worker: sign-up, invite link, live check-ins, reactions, nudges, a weekly challenge, signing in on a second device with the key, a change on one device appearing live on the other, sign-out. Plus the single-user flows: onboarding → quick add → Yes/undo → No + reason → edit → import → demo → report → calendar → deep link → accessibility names → no horizontal overflow at 360 px; the **full push flow** (real app + real service worker + real worker, push delivered to the service worker via the Chrome DevTools Protocol, including a stronger reminder that stays on screen and asks again); the **starter water habits** (new and existing users, deletion, sample data); and the **iPhone app paths** behind a fake native shell (scheduling, Yes/No buttons, restore from native backup) | `e2e/` |
 
 ## FAQ
 

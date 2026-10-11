@@ -153,12 +153,16 @@ export async function putHabit(habit: Habit): Promise<void> {
   await putHabits([habit]);
 }
 
-export async function putHabits(habits: Habit[]): Promise<void> {
+/**
+ * `fixedStamp` writes new habits with that timestamp instead of now (the starter habits use one
+ * shared timestamp on every device; see starter.ts).
+ */
+export async function putHabits(habits: Habit[], fixedStamp?: number): Promise<void> {
   const now = Date.now();
   await writeTx(async (tx, sync) => {
     const store = tx.objectStore('habits');
     for (const h of habits) {
-      const stamp = stampAfter((await store.get(h.id))?.updatedAt, now);
+      const stamp = fixedStamp ?? stampAfter((await store.get(h.id))?.updatedAt, now);
       await store.put({ ...h, updatedAt: stamp });
       if (sync && !isDemoHabitId(h.id)) await enqueue(tx, 'h', h.id, stamp, false);
     }

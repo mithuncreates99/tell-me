@@ -26,8 +26,8 @@ export function Privacy() {
         <Block title="Without an account, everything stays on your device">
           <p>Your habits, answers, reasons and notes are stored in this browser or app only. Nothing is sent anywhere.</p>
           <p>
-            If you turn on push reminders, the reminder server stores each reminder's habit name, emoji and time, plus your device's push
-            address. It never learns your answers.
+            If you turn on push reminders, the reminder server stores each reminder's habit name, emoji and time (and, for a stronger
+            reminder, when to ask again), plus your device's push address. It never learns your answers.
           </p>
         </Block>
         <Block title="With an account, your data is end-to-end encrypted">

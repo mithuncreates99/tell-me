@@ -3,7 +3,18 @@ import type { Checkin, Habit } from './types';
 
 /** Payloads sent by the reminder server (see api/src/push.ts). */
 export type PushPayload =
-  | { type: 'checkin'; habitId: string; date: string; title: string; emoji: string; time: string }
+  | {
+      type: 'checkin';
+      habitId: string;
+      date: string;
+      title: string;
+      emoji: string;
+      time: string;
+      /** Stronger reminder: keep it on screen until it's answered. */
+      insist?: boolean;
+      /** The second ask, because the first one is still unanswered. */
+      followUp?: boolean;
+    }
   | { type: 'weekly'; date: string }
   | { type: 'test' }
   | { type: 'social'; title: string; body: string; path: string; tag: string };
@@ -18,7 +29,12 @@ export interface NotificationData {
 
 export interface NotificationSpec {
   title: string;
-  options: NotificationOptions & { actions?: Array<{ action: string; title: string }>; data: NotificationData };
+  options: NotificationOptions & {
+    actions?: Array<{ action: string; title: string }>;
+    /** Alert again even though a notification with the same tag is already showing. */
+    renotify?: boolean;
+    data: NotificationData;
+  };
 }
 
 const ICON = 'icons/icon-192.png';
@@ -39,6 +55,8 @@ export function parsePushPayload(raw: unknown): PushPayload | null {
       title: String(p.title ?? 'Your habit'),
       emoji: String(p.emoji ?? ''),
       time: String(p.time ?? ''),
+      ...(p.insist === true ? { insist: true } : {}),
+      ...(p.followUp === true ? { followUp: true } : {}),
     };
   }
   if (p.type === 'weekly') return { type: 'weekly', date: String(p.date ?? '') };
@@ -61,16 +79,24 @@ export function checkinNotification(
   let body: string;
   if (ctx.existing) {
     body = `Already logged as ${ctx.existing.answer === 'yes' ? 'Yes' : 'No'}. Tap to change it.`;
+  } else if (p.followUp) {
+    const planned = time ? ` (planned ${when}at ${formatTime(time)})` : '';
+    body = `Still waiting for your answer${planned}. Yes or No?${ctx.canShowActions ? '' : ' Tap to answer.'}`;
   } else {
     const planned = time ? `Planned ${when}at ${formatTime(time)}. ` : '';
     const nudge = ctx.streak >= 2 ? `🔥 ${ctx.streak} in a row, keep it going!` : 'Yes or No?';
     body = `${planned}${nudge}${ctx.canShowActions ? '' : ' Tap to answer.'}`;
   }
+  const unanswered = !ctx.existing;
   return {
     title: `${emoji ? `${emoji} ` : ''}${name}: did you show up?`,
     options: {
       body,
       tag: `checkin-${p.habitId}-${p.date}`,
+      // Stronger reminder: stays on screen (on computers) until it's answered, and the second ask
+      // alerts again even though it replaces the first one. Already answered: replace it quietly.
+      ...(unanswered && (p.insist || p.followUp) ? { requireInteraction: true } : {}),
+      ...(p.followUp ? (unanswered ? { renotify: true } : { silent: true }) : {}),
       icon: ICON,
       badge: BADGE,
       actions: ctx.existing ? [] : ACTIONS,

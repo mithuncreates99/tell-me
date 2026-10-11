@@ -5,6 +5,8 @@ interface ImportMetaEnv {
   readonly VITE_API_URL?: string;
   /** Link to the source code shown in Settings → About. */
   readonly VITE_REPO_URL?: string;
+  /** "off" leaves out the starter water habits (browser-test builds only). */
+  readonly VITE_STARTER_HABITS?: string;
 }
 
 interface ImportMeta {

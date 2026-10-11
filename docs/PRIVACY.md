@@ -6,7 +6,7 @@ The short version: **without an account, nothing leaves your device. With an acc
 
 Your habits, Yes/No answers, reasons and notes are stored in your browser or in the iPhone app only (IndexedDB). Nothing is sent anywhere.
 
-If you turn on push reminders, the reminder server stores each reminder's habit name, emoji and time, your time zone, and your device's push address. It never learns your answers. Turning reminders off deletes all of that.
+If you turn on push reminders, the reminder server stores each reminder's habit name, emoji and time (and, for a stronger reminder, when to ask again), your time zone, and your device's push address. It never learns your answers. Turning reminders off deletes all of that.
 
 ## With an account
 
@@ -44,7 +44,7 @@ A reaction or a nudge is seen only by the two people involved. Not even a friend
 | Snapshot of shared habits | What friends see | Replaced on every update |
 | Friend list, challenges | Friends features | Until removed |
 | Reactions and nudges | Friends features | Two weeks |
-| Push reminder schedule (names, emoji, times) and push address | Sending reminders | Until you turn reminders off |
+| Push reminder schedule (names, emoji, times, follow-up minutes) and push address | Sending reminders | Until you turn reminders off |
 | Counters of sign-ups, friend-code tries and invite links opened (per network or account) | Stopping abuse, such as guessing friend codes | One hour |
 
 The server runs on Cloudflare Workers with a D1 database.

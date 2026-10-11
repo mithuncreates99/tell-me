@@ -3,7 +3,18 @@ import { buildWebPushRequest } from './webpush';
 
 /** What the service worker receives. Kept tiny on purpose: no habit history ever leaves the phone. */
 export type PushPayload =
-  | { type: 'checkin'; habitId: string; date: string; title: string; emoji: string; time: string }
+  | {
+      type: 'checkin';
+      habitId: string;
+      date: string;
+      title: string;
+      emoji: string;
+      time: string;
+      /** Stronger reminder: keep the notification on screen until it's answered. */
+      insist?: true;
+      /** The second ask, sent because the first one is still unanswered. */
+      followUp?: true;
+    }
   | { type: 'weekly'; date: string }
   | { type: 'test' }
   /** Friends: nudges, reactions, invites. Title and body are ready to show. */

@@ -125,12 +125,15 @@ export async function startWorker(port, vapid) {
   };
 }
 
-/** Builds the web app (optionally pointing at an API) and serves it with `vite preview`. */
-export async function startWeb(port, { apiUrl = '', outDir = 'dist-e2e', mode } = {}) {
+/**
+ * Builds the web app (optionally pointing at an API) and serves it with `vite preview`.
+ * The starter water habits are left out unless `starter` is set: the other suites count habits.
+ */
+export async function startWeb(port, { apiUrl = '', outDir = 'dist-e2e', mode, starter = false } = {}) {
   if (!process.env.SKIP_WEB_BUILD || !existsSync(join(WEB_DIR, outDir))) {
     execFileSync('npx', ['vite', 'build', '--outDir', outDir, ...(mode ? ['--mode', mode] : [])], {
       cwd: WEB_DIR,
-      env: { ...env, VITE_API_URL: apiUrl },
+      env: { ...env, VITE_API_URL: apiUrl, VITE_STARTER_HABITS: starter ? 'on' : 'off' },
       stdio: ['ignore', 'pipe', 'inherit'],
     });
   }

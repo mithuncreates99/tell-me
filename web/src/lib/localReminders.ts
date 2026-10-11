@@ -1,4 +1,5 @@
 import { addDays, atMinutes, formatTime, todayISO, weekdayOf } from './dates';
+import { FOLLOW_UP_MIN } from './reminders';
 import { askAt, checkinKey, isScheduledOn, type CheckinMap } from './schedule';
 import type { Habit, ISODate, Settings } from './types';
 
@@ -47,17 +48,32 @@ export function planLocalNotifications(
     const date = addDays(today, i);
     for (const habit of habits) {
       if (!habit.remind || habit.archivedAt || !isScheduledOn(habit, date)) continue;
-      if (checkins.has(checkinKey(habit.id, date))) continue; // already answered
+      if (checkins.has(checkinKey(habit.id, date))) continue; // already answered (cancels both asks)
       const at = askAt(habit, date, settings);
-      if (at <= now) continue;
-      plan.push({
-        id: notificationId(`${habit.id}|${date}`),
-        at,
-        title: `${habit.emoji} ${habit.name}: did you show up?`,
-        body: `${habit.time ? `Planned at ${formatTime(habit.time)}. ` : ''}Press and hold to answer Yes or No.`,
-        actionTypeId: 'CHECKIN',
-        extra: { kind: 'checkin', habitId: habit.id, date },
-      });
+      const title = `${habit.emoji} ${habit.name}: did you show up?`;
+      const extra = { kind: 'checkin' as const, habitId: habit.id, date };
+      if (at > now) {
+        plan.push({
+          id: notificationId(`${habit.id}|${date}`),
+          at,
+          title,
+          body: `${habit.time ? `Planned at ${formatTime(habit.time)}. ` : ''}Press and hold to answer Yes or No.`,
+          actionTypeId: 'CHECKIN',
+          extra,
+        });
+      }
+      // Stronger reminder: ask once more if it's still unanswered (re-planning after an answer removes it).
+      const again = new Date(at.getTime() + FOLLOW_UP_MIN * 60_000);
+      if (habit.strongReminder && again > now) {
+        plan.push({
+          id: notificationId(`${habit.id}|${date}|again`),
+          at: again,
+          title,
+          body: 'Still waiting for your answer. Press and hold to answer Yes or No.',
+          actionTypeId: 'CHECKIN',
+          extra,
+        });
+      }
     }
   }
 

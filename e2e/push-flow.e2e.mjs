@@ -175,6 +175,67 @@ try {
     assert.ok(skip.split(',').includes(today), `skip_dates "${skip}" should include ${today}`);
   });
 
+  await step('a stronger reminder sends its second ask to the server', async () => {
+    await page.goto(web.url + `#/habits/${habitId}`);
+    await page.getByRole('switch', { name: /Stronger reminder/ }).click();
+    await page.getByRole('button', { name: 'Save changes' }).click();
+    let row;
+    for (let i = 0; i < 40 && row?.follow_up_min !== 30; i++) {
+      await sleep(200);
+      row = worker.sql(`SELECT follow_up_min FROM reminders WHERE id = '${habitId}'`)[0];
+    }
+    assert.equal(row?.follow_up_min, 30);
+  });
+
+  await step('its notifications stay on screen, and the second ask says it is still waiting', async () => {
+    const tomorrow = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Paris' }).format(new Date(Date.now() + 86_400_000));
+    const cdp = await context.newCDPSession(page);
+    const registrationId = await new Promise((resolve) => {
+      cdp.on('ServiceWorker.workerRegistrationUpdated', ({ registrations }) => {
+        const r = registrations.find((x) => !x.isDeleted && x.scopeURL.startsWith(web.url));
+        if (r) resolve(r.registrationId);
+      });
+      cdp.send('ServiceWorker.enable');
+    });
+    const notificationFor = async (date) => {
+      for (let i = 0; i < 50; i++) {
+        const found = await page.evaluate(async (tag) => {
+          const n = (await (await navigator.serviceWorker.ready).getNotifications({ tag }))[0];
+          return n ? { body: n.body, requireInteraction: n.requireInteraction, renotify: n.renotify } : null;
+        }, `checkin-${habitId}-${date}`);
+        if (found) return found;
+        await sleep(100);
+      }
+      return null;
+    };
+    const tickFor = async (followUp) => {
+      push.received.length = 0;
+      worker.sql(`UPDATE reminders SET next_fire_at = ${Date.now() - 5000}, next_date = '${tomorrow}', next_follow_up = ${followUp ? 1 : 0} WHERE id = '${habitId}'`);
+      await worker.tick();
+      for (let i = 0; i < 40 && push.received.length === 0; i++) await sleep(100);
+      const payload = push.received[0]?.payload;
+      await cdp.send('ServiceWorker.deliverPushMessage', { origin: new URL(web.url).origin, registrationId, data: JSON.stringify(payload) });
+      return payload;
+    };
+
+    const first = await tickFor(false);
+    assert.deepEqual(first, { type: 'checkin', habitId, date: tomorrow, title: 'Read', emoji: '📚', time: '22:00', insist: true });
+    const shown = await notificationFor(tomorrow);
+    assert.equal(shown?.requireInteraction, true, 'stays on screen');
+    assert.match(shown.body, /Planned/);
+
+    const second = await tickFor(true);
+    assert.deepEqual(second, { ...first, followUp: true });
+    let again;
+    for (let i = 0; i < 50 && !again?.body.startsWith('Still waiting'); i++) {
+      await sleep(100);
+      again = await notificationFor(tomorrow);
+    }
+    assert.match(again?.body ?? '', /^Still waiting for your answer/);
+    assert.equal(again.requireInteraction, true);
+    assert.equal(again.renotify, true, 'alerts again');
+  });
+
   await step('turning reminders off deletes the device on the server', async () => {
     await page.goto(web.url + '#/settings');
     await page.getByRole('button', { name: 'Turn off' }).click();

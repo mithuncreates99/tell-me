@@ -37,6 +37,22 @@ describe('iPhone local reminders plan', () => {
     expect(weekly.map((p) => p.extra.kind)).toEqual(['weekly']); // Sun 11 Oct 19:00
   });
 
+  it('asks a second time, 30 minutes later, for a stronger reminder', () => {
+    const plan = planLocalNotifications([habit({ strongReminder: true })], map([]), s, now, 2);
+    const monday = plan.filter((p) => p.extra.kind === 'checkin' && p.extra.date === '2026-10-05');
+    expect(monday.map((p) => p.at.toISOString())).toEqual(['2026-10-05T17:00:00.000Z', '2026-10-05T17:30:00.000Z']);
+    expect(monday[1]!.body).toContain('Still waiting for your answer');
+    expect(new Set(monday.map((p) => p.id)).size).toBe(2);
+  });
+
+  it('keeps the second ask after the first has gone, and drops both once answered', () => {
+    const between = at('2026-10-05T19:10:00+02:00'); // after the 19:00 ask, before 19:30
+    const plan = planLocalNotifications([habit({ strongReminder: true })], map([]), s, between, 0);
+    expect(plan.filter((p) => p.extra.kind === 'checkin').map((p) => p.at.toISOString())).toEqual(['2026-10-05T17:30:00.000Z']);
+    const answered = planLocalNotifications([habit({ strongReminder: true })], map([checkin('gym', '2026-10-05', 'yes')]), s, between, 0);
+    expect(answered.filter((p) => p.extra.kind === 'checkin')).toEqual([]);
+  });
+
   it('uses stable ids that fit in a 32-bit int', () => {
     const id = notificationId('gym|2026-10-05');
     expect(id).toBe(notificationId('gym|2026-10-05'));

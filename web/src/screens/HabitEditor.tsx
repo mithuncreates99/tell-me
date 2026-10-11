@@ -19,6 +19,7 @@ interface Draft {
   time: string;
   askAfterMin: number;
   remind: boolean;
+  strongReminder: boolean;
   shared: boolean;
 }
 
@@ -56,9 +57,21 @@ export function HabitEditor({ id }: { id?: string }) {
           time: existing.time ?? '18:00',
           askAfterMin: existing.askAfterMin,
           remind: existing.remind,
+          strongReminder: !!existing.strongReminder,
           shared: !!existing.shared,
         }
-      : { name: '', emoji: '✅', color: nextColor(habits), days: [1, 3, 5], hasTime: true, time: '18:00', askAfterMin: 60, remind: true, shared: false },
+      : {
+          name: '',
+          emoji: '✅',
+          color: nextColor(habits),
+          days: [1, 3, 5],
+          hasTime: true,
+          time: '18:00',
+          askAfterMin: 60,
+          remind: true,
+          strongReminder: false,
+          shared: false,
+        },
   );
 
   if (id && !existing) {
@@ -87,6 +100,7 @@ export function HabitEditor({ id }: { id?: string }) {
       time: draft.hasTime ? draft.time : null,
       askAfterMin: draft.hasTime ? draft.askAfterMin : 0,
       remind: draft.remind,
+      strongReminder: draft.strongReminder || undefined,
       shared: draft.shared,
     };
     if (existing) {
@@ -247,6 +261,16 @@ export function HabitEditor({ id }: { id?: string }) {
               description={`Notification at ${askAt}${remindersOn ? '' : ' (turn reminders on in Settings)'}`}
             />
           </div>
+          {draft.remind && (
+            <div className="border-t border-line">
+              <Toggle
+                checked={draft.strongReminder}
+                onChange={(v) => set({ strongReminder: v })}
+                label="Stronger reminder"
+                description="Asks again 30 minutes later if you haven't answered. On a computer, it stays on screen until you do."
+              />
+            </div>
+          )}
           {SOCIAL_AVAILABLE && (
             <div className="border-t border-line">
               <Toggle

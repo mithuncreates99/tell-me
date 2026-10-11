@@ -23,8 +23,12 @@ export interface ReminderRow {
   time: string;
   offset_min: number;
   skip_dates: string;
+  /** Ask again this many minutes after the first push if still unanswered (0 = never). */
+  follow_up_min: number;
   next_fire_at: number | null;
   next_date: string | null;
+  /** 1 when the next push is the second ask. */
+  next_follow_up: number;
 }
 
 /** A due reminder joined with the device it belongs to. */
@@ -66,8 +70,8 @@ export function deleteReminders(db: D1Database, deviceId: string): D1PreparedSta
 export function insertReminder(db: D1Database, r: ReminderRow): D1PreparedStatement {
   return db
     .prepare(
-      `INSERT INTO reminders (device_id, id, kind, title, emoji, days, time, offset_min, skip_dates, next_fire_at, next_date)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO reminders (device_id, id, kind, title, emoji, days, time, offset_min, skip_dates, follow_up_min, next_fire_at, next_date, next_follow_up)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       r.device_id,
@@ -79,8 +83,10 @@ export function insertReminder(db: D1Database, r: ReminderRow): D1PreparedStatem
       r.time,
       r.offset_min,
       r.skip_dates,
+      r.follow_up_min,
       r.next_fire_at,
       r.next_date,
+      r.next_follow_up,
     );
 }
 
@@ -106,11 +112,11 @@ export function setNextFire(
   db: D1Database,
   deviceId: string,
   id: string,
-  next: { fireAt: number; date: string } | null,
+  next: { fireAt: number; date: string; followUp: boolean } | null,
 ): D1PreparedStatement {
   return db
-    .prepare('UPDATE reminders SET next_fire_at = ?, next_date = ? WHERE device_id = ? AND id = ?')
-    .bind(next?.fireAt ?? null, next?.date ?? null, deviceId, id);
+    .prepare('UPDATE reminders SET next_fire_at = ?, next_date = ?, next_follow_up = ? WHERE device_id = ? AND id = ?')
+    .bind(next?.fireAt ?? null, next?.date ?? null, next?.followUp ? 1 : 0, deviceId, id);
 }
 
 export function markPushOk(db: D1Database, deviceId: string, now: number): D1PreparedStatement {

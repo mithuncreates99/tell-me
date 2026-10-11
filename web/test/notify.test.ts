@@ -44,4 +44,32 @@ describe('social notifications', () => {
     const outside = parsePushPayload({ type: 'social', title: 'x', path: 'https://evil.example' });
     expect(outside).toMatchObject({ path: '#/friends' });
   });
+
+  it('keeps a stronger reminder on screen, and alerts again on the second ask', () => {
+    expect(parsePushPayload({ ...payload, insist: true, followUp: true, extra: 1 })).toEqual({ ...payload, insist: true, followUp: true });
+    const first = checkinNotification({ ...payload, insist: true }, { habit: habit(), streak: 0, today: '2026-10-05', canShowActions: true });
+    expect(first.options).toMatchObject({ requireInteraction: true });
+    expect(first.options.body).toMatch(/^Planned at .+\. Yes or No\?$/);
+    expect(first.options).not.toHaveProperty('renotify');
+    const again = checkinNotification({ ...payload, insist: true, followUp: true }, { habit: habit(), streak: 3, today: '2026-10-05', canShowActions: true });
+    expect(again.options).toMatchObject({ requireInteraction: true, renotify: true, tag: first.options.tag });
+    expect(again.options.body).toMatch(/^Still waiting for your answer \(planned at .+\)\. Yes or No\?$/);
+  });
+
+  it('replaces an already answered second ask quietly', () => {
+    const done = checkinNotification(
+      { ...payload, insist: true, followUp: true },
+      { existing: checkin('gym', '2026-10-05', 'no'), streak: 0, today: '2026-10-05', canShowActions: true },
+    );
+    expect(done.options).toMatchObject({ silent: true });
+    expect(done.options).not.toHaveProperty('requireInteraction');
+    expect(done.options).not.toHaveProperty('renotify');
+  });
+
+  it('leaves ordinary reminders as they were', () => {
+    const n = checkinNotification(payload, { habit: habit(), streak: 0, today: '2026-10-05', canShowActions: true });
+    expect(n.options).not.toHaveProperty('requireInteraction');
+    expect(n.options).not.toHaveProperty('renotify');
+    expect(n.options).not.toHaveProperty('silent');
+  });
 });

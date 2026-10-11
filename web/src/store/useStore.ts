@@ -6,7 +6,8 @@ import * as db from '../lib/db';
 import { buildDemoData } from '../lib/demo';
 import { newId } from '../lib/ids';
 import { checkinKey, toCheckinMap, type CheckinMap } from '../lib/schedule';
-import { noteAnswer } from '../lib/sync';
+import { STARTER_ENABLED, STARTER_IDS, STARTER_STAMP, STARTER_VERSION, starterDue, starterHabitsToAdd } from '../lib/starter';
+import { accountHasHabits, noteAnswer } from '../lib/sync';
 import {
   DEFAULT_SETTINGS,
   type Answer,
@@ -18,6 +19,7 @@ import {
   type Settings,
   type Weekday,
 } from '../lib/types';
+import { navigate } from '../router';
 
 export interface Toast {
   id: number;
@@ -34,6 +36,7 @@ export interface NewHabit {
   color?: HabitColor;
   askAfterMin?: number;
   remind?: boolean;
+  strongReminder?: boolean;
   shared?: boolean;
 }
 
@@ -56,6 +59,8 @@ interface Actions {
   reloadFromDisk(): Promise<void>;
   tick(): void;
   addHabits(input: NewHabit[]): Promise<Habit[]>;
+  /** Adds the starter habits (three water check-ins) once per device; see lib/starter.ts. */
+  ensureStarterHabits(): Promise<void>;
   saveHabit(habit: Habit): Promise<void>;
   deleteHabit(id: string): Promise<void>;
   setArchived(id: string, archived: boolean): Promise<void>;
@@ -75,6 +80,7 @@ interface Actions {
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
+let starterRun: Promise<void> | null = null;
 
 /** Called after every local change to habits or check-ins (the sync engine listens). */
 let changeListener: (() => void) | null = null;
@@ -100,6 +106,7 @@ export const useStore = create<State & Actions>()((set, get) => ({
     try {
       const data = await db.loadAll();
       set({ habits: data.habits, checkins: toCheckinMap(data.checkins), settings: data.settings, ready: true, now: new Date() });
+      void get().ensureStarterHabits();
     } catch (err) {
       // Private browsing modes can block IndexedDB: still start, and say why nothing will be saved.
       console.warn('Storage unavailable', err);
@@ -137,6 +144,7 @@ export const useStore = create<State & Actions>()((set, get) => ({
         createdAt: today,
         archivedAt: null,
         order: ++order,
+        ...(h.strongReminder ? { strongReminder: true } : {}),
         ...(h.shared ? { shared: true } : {}),
       };
       created.push(habit);
@@ -146,7 +154,18 @@ export const useStore = create<State & Actions>()((set, get) => ({
     set({ habits: all, settings: { ...get().settings } });
     if (!get().settings.onboarded) await get().updateSettings({ onboarded: true });
     changed();
+    void get().ensureStarterHabits(); // a new user's first habit brings the starter habits along
     return created;
+  },
+
+  ensureStarterHabits() {
+    // One run at a time: the app start and a new user's first habit can both ask.
+    starterRun ??= addStarterHabits()
+      .catch((err) => console.warn('Could not add the starter habits', err))
+      .finally(() => {
+        starterRun = null;
+      });
+    return starterRun;
   },
 
   async saveHabit(habit) {
@@ -293,3 +312,26 @@ export const useStore = create<State & Actions>()((set, get) => ({
     set({ localScheduled: n });
   },
 }));
+
+async function addStarterHabits(): Promise<void> {
+  const store = useStore.getState;
+  if (!STARTER_ENABLED || !starterDue(store().habits, store().settings)) return;
+  // Signed in: the account may already have them, or they were deleted on another device.
+  const remote = await accountHasHabits(STARTER_IDS);
+  if (remote === 'unknown') return; // offline: try again next time the app starts
+  const { habits, settings } = store();
+  if (!starterDue(habits, settings)) return;
+  const added = remote === 'yes' ? [] : starterHabitsToAdd(habits, todayISO());
+  if (added.length) {
+    await db.putHabits(added, STARTER_STAMP);
+    const ids = new Set(added.map((h) => h.id));
+    useStore.setState({ habits: [...store().habits.filter((h) => !ids.has(h.id)), ...added].sort((a, b) => a.order - b.order) });
+    changed();
+  }
+  await store().updateSettings({ starter: STARTER_VERSION });
+  if (added.length) {
+    store().showToast('Added water check-ins, 4 L a day. Change or remove them in Habits.', {
+      action: { label: 'Habits', run: () => navigate('/habits') },
+    });
+  }
+}

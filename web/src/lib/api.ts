@@ -44,6 +44,8 @@ export interface ReminderInput {
   time: string;
   offsetMin: number;
   skipDates: string[];
+  /** Stronger reminder: ask again this many minutes after the first push if still unanswered. */
+  followUpMin?: number;
 }
 
 export interface DeviceSyncBody {
@@ -191,6 +193,8 @@ export const cloud = {
     request<{ records: Array<SyncRecord & { s: number }>; seq: number; more: boolean; reminders?: boolean }>(`/api/sync?since=${since}`, { token: auth }),
   push: (auth: string, body: { records: SyncRecord[]; answered?: Array<{ habitId: string; date: string }> }) =>
     request<{ ok: true; seq: number; applied: number }>('/api/sync', { ...json('POST', body), token: auth }),
+  /** Which of these (opaque) habit records the account has, alive or deleted. */
+  has: (auth: string, ids: string[]) => request<{ found: string[] }>('/api/sync/has', { ...json('POST', { ids }), token: auth }),
 
   invite: (code: string) => request<{ name: string; emoji: string }>(`/api/invite/${encodeURIComponent(code)}`),
   friends: (auth: string) => request<FriendsFeed>('/api/friends', { token: auth }),

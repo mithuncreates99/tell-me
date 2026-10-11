@@ -128,6 +128,39 @@ try {
     assert.equal(sql(`SELECT COUNT(*) AS n FROM reminders WHERE device_id = '${deviceId}'`)[0].n, 1, 'old reminders replaced');
   });
 
+  await step('a stronger reminder asks again 30 minutes after an unanswered push', async () => {
+    // Planned two minutes ago: its first push has gone, so the second ask is what comes next.
+    const parts = Object.fromEntries(
+      new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Paris', hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+        .formatToParts(new Date(Date.now() - 2 * 60_000))
+        .map((p) => [p.type, p.value]),
+    );
+    const time = `${parts.hour}:${parts.minute}`;
+    const date = `${parts.year}-${parts.month}-${parts.day}`;
+    const water = { id: 'water', kind: 'checkin', title: 'Water', emoji: '💧', days: [0, 1, 2, 3, 4, 5, 6], time, offsetMin: 0, followUpMin: 30 };
+    const put = (reminder) => api(`/api/devices/${deviceId}`, { method: 'PUT', token, body: JSON.stringify({ subscription, timeZone: 'Europe/Paris', reminders: [reminder] }) });
+    const res = await put(water);
+    assert.equal(res.status, 200, await res.clone().text());
+    const body = await res.json();
+    assert.deepEqual([body.reminders[0].nextDate, body.reminders[0].followUp], [date, true]);
+    const [row] = sql(`SELECT follow_up_min, next_follow_up, next_fire_at FROM reminders WHERE device_id = '${deviceId}' AND id = 'water'`);
+    assert.deepEqual([row.follow_up_min, row.next_follow_up], [30, 1]);
+    assert.ok(Math.abs(row.next_fire_at - (Date.now() + 28 * 60_000)) < 90_000, 'about 28 minutes from now');
+
+    sql(`UPDATE reminders SET next_fire_at = ${Date.now() - 1_000} WHERE device_id = '${deviceId}' AND id = 'water'`);
+    received.length = 0;
+    await tick();
+    await waitFor(() => received.length === 1, 'second ask');
+    assert.deepEqual(received[0].payload, { type: 'checkin', habitId: 'water', date, title: 'Water', emoji: '💧', time, insist: true, followUp: true });
+
+    // Answering cancels the second ask too; the weekly report never gets one.
+    const answered = await (await put({ ...water, skipDates: [date] })).json();
+    assert.notEqual(answered.reminders[0].nextDate, date);
+    assert.equal(answered.reminders[0].followUp, undefined);
+    await put({ id: 'weekly-report', kind: 'weekly', title: 'Weekly report', days: [0, 1, 2, 3, 4, 5, 6], time, followUpMin: 30 });
+    assert.equal(sql(`SELECT follow_up_min FROM reminders WHERE device_id = '${deviceId}'`)[0].follow_up_min, 0);
+  });
+
   await step('POST /test sends a test notification', async () => {
     received.length = 0;
     const res = await api(`/api/devices/${deviceId}/test`, { method: 'POST', token });
@@ -230,6 +263,19 @@ try {
     assert.equal(pull.records.length, 1);
     assert.equal((await json(await authed('/api/sync?since=0', B.token))).records.length, 0, 'accounts are isolated');
     assert.equal((await authed('/api/sync', A.token, { method: 'POST', body: JSON.stringify({ records: [rec('x', h, 1, 'a'.repeat(40))] }) })).status, 400);
+  });
+
+  await step('sync/has: which habit records an account has, deleted ones included', async () => {
+    const alive = opaque('alive');
+    const gone = opaque('gone');
+    await authed('/api/sync', A.token, { method: 'POST', body: JSON.stringify({ records: [rec('h', alive, 300, 'a'.repeat(40)), rec('h', gone, 300, 'g'.repeat(40), 1)] }) });
+    const ask = (token, ids) => authed('/api/sync/has', token, { method: 'POST', body: JSON.stringify({ ids }) });
+    const res = await ask(A.token, [alive, gone, opaque('never')]);
+    assert.equal(res.status, 200);
+    assert.deepEqual((await json(res)).found.sort(), [alive, gone].sort());
+    assert.deepEqual((await json(await ask(B.token, [alive, gone]))).found, [], 'only your own records');
+    assert.equal((await api('/api/sync/has', { method: 'POST', body: JSON.stringify({ ids: [alive] }) })).status, 401);
+    assert.equal((await ask(A.token, [])).status, 400);
   });
 
   await step('friends: look up a code, add (mutual), reject own and unknown codes', async () => {

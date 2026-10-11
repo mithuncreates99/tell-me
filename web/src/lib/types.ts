@@ -20,6 +20,8 @@ export interface Habit {
   askAfterMin: number;
   /** Send push reminders for this habit. */
   remind: boolean;
+  /** Stronger reminder: asks again 30 minutes later if unanswered, and stays on screen on computers. */
+  strongReminder?: boolean;
   /** First day the habit counts (earlier days are never "missed"). */
   createdAt: ISODate;
   /** From this day on the habit is paused/archived (history is kept). */
@@ -72,6 +74,8 @@ export interface Settings {
   localReminders: boolean;
   onboarded: boolean;
   dismissedPushPromo?: boolean;
+  /** Which set of starter habits this device has already offered (see starter.ts). */
+  starter?: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {

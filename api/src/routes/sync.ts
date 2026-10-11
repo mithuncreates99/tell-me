@@ -4,7 +4,7 @@ import { computeNextFire } from '../schedule';
 import { addDays } from '../social';
 import { localDate } from '../tz';
 import { requireUser, spendWrites, type AppEnv } from '../users';
-import { syncPullSchema, syncPushSchema } from '../validation';
+import { syncHasSchema, syncPullSchema, syncPushSchema } from '../validation';
 
 /**
  * End-to-end encrypted sync. The server stores opaque records (HMAC ids, AES-GCM payloads) and
@@ -16,6 +16,26 @@ export const sync = new Hono<AppEnv>();
 /** Generous: years of daily use fit in a fraction of this. */
 export const MAX_RECORDS_PER_ACCOUNT = 50_000;
 sync.use('/sync', requireUser);
+sync.use('/sync/has', requireUser);
+
+/**
+ * Which of these habit records the account has, alive or deleted. A device asks once before adding
+ * the starter habits, so one deleted on another device isn't added back. The ids are the same
+ * opaque HMAC ids the device syncs with: the server learns nothing it doesn't already store.
+ */
+sync.post('/sync/has', async (c) => {
+  const user = c.get('user');
+  const body = syncHasSchema.safeParse(await c.req.json().catch(() => null));
+  if (!body.success) return c.json({ error: 'Invalid request' }, 400);
+  const ids = [...new Set(body.data.ids)];
+  const placeholders = ids.map((_, i) => `?${i + 2}`).join(', ');
+  const { results } = await c.env.DB.prepare(
+    `SELECT id FROM sync_records WHERE user_id = ?1 AND kind = 'h' AND id IN (${placeholders})`,
+  )
+    .bind(user.id, ...ids)
+    .all<{ id: string }>();
+  return c.json({ found: results.map((r) => r.id) });
+});
 
 interface RecordRow {
   kind: 'h' | 'c';
@@ -104,12 +124,21 @@ async function skipAnsweredReminders(db: D1Database, userId: string, answered: A
   const placeholders = ids.map((_, i) => `?${i + 2}`).join(', ');
   const { results } = await db
     .prepare(
-      `SELECT r.device_id, r.id, r.days, r.time, r.offset_min, r.skip_dates, d.time_zone
+      `SELECT r.device_id, r.id, r.days, r.time, r.offset_min, r.skip_dates, r.follow_up_min, d.time_zone
        FROM reminders r JOIN devices d ON d.id = r.device_id
        WHERE d.user_id = ?1 AND r.kind = 'checkin' AND r.id IN (${placeholders})`,
     )
     .bind(userId, ...ids)
-    .all<{ device_id: string; id: string; days: number; time: string; offset_min: number; skip_dates: string; time_zone: string }>();
+    .all<{
+      device_id: string;
+      id: string;
+      days: number;
+      time: string;
+      offset_min: number;
+      skip_dates: string;
+      follow_up_min: number;
+      time_zone: string;
+    }>();
   if (!results.length) return;
   const now = Date.now();
   const updates = results.map((row) => {
@@ -117,10 +146,14 @@ async function skipAnsweredReminders(db: D1Database, userId: string, answered: A
     const skip = new Set(row.skip_dates ? row.skip_dates.split(',') : []);
     for (const a of answered) if (a.habitId === row.id) skip.add(a.date);
     const kept = [...skip].filter((d) => d >= addDays(today, -2)).sort().slice(-14);
-    const next = computeNextFire({ days: row.days, time: row.time, offsetMin: row.offset_min, skipDates: kept }, row.time_zone, now);
+    const next = computeNextFire(
+      { days: row.days, time: row.time, offsetMin: row.offset_min, skipDates: kept, followUpMin: row.follow_up_min },
+      row.time_zone,
+      now,
+    );
     return db
-      .prepare('UPDATE reminders SET skip_dates = ?, next_fire_at = ?, next_date = ? WHERE device_id = ? AND id = ?')
-      .bind(kept.join(','), next?.fireAt ?? null, next?.date ?? null, row.device_id, row.id);
+      .prepare('UPDATE reminders SET skip_dates = ?, next_fire_at = ?, next_date = ?, next_follow_up = ? WHERE device_id = ? AND id = ?')
+      .bind(kept.join(','), next?.fireAt ?? null, next?.date ?? null, next?.followUp ? 1 : 0, row.device_id, row.id);
   });
   await db.batch(updates);
 }

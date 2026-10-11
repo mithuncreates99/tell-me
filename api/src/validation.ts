@@ -30,6 +30,8 @@ export const reminderSchema = z.object({
   time: hhmm,
   offsetMin: z.number().int().min(0).max(720).default(0),
   skipDates: z.array(isoDate).max(14).default([]),
+  /** Stronger reminder: ask again this many minutes after the first push if still unanswered. */
+  followUpMin: z.number().int().min(0).max(180).default(0),
 });
 
 export const putDeviceSchema = z.object({
@@ -73,6 +75,10 @@ export const syncRecordSchema = z.object({
   u: z.number().int().min(0).max(1e15),
   d: z.union([z.literal(0), z.literal(1)]),
   x: base64url.min(16).max(4_000), // a habit or check-in is well under 1 KB
+});
+/** The opaque ids of a few habit records (the starter habits), to check whether the account has them. */
+export const syncHasSchema = z.object({
+  ids: z.array(syncRecordSchema.shape.id).min(1).max(10),
 });
 export const syncPushSchema = z
   .object({

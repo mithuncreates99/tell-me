@@ -34,6 +34,8 @@ export function payloadFor(row: DueRow): PushPayload {
     title: row.title,
     emoji: row.emoji,
     time: row.time,
+    ...(row.follow_up_min > 0 ? { insist: true as const } : {}),
+    ...(row.next_follow_up ? { followUp: true as const } : {}),
   };
 }
 
@@ -44,6 +46,7 @@ export function nextAfter(row: DueRow, now: number) {
       time: row.time,
       offsetMin: row.offset_min,
       skipDates: row.skip_dates ? row.skip_dates.split(',') : [],
+      followUpMin: row.follow_up_min,
     },
     row.time_zone,
     Math.max(row.next_fire_at ?? now, now),

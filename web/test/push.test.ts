@@ -24,4 +24,10 @@ describe('buildReminders', () => {
     const list = buildReminders([habit()], map([]), { ...s, weeklyReport: { ...s.weeklyReport, enabled: false } }, now);
     expect(list.map((r) => r.id)).toEqual(['gym']);
   });
+
+  it('asks the server for a second ask only on habits with a stronger reminder', () => {
+    const list = buildReminders([habit(), habit({ id: 'water', strongReminder: true })], map([]), s, now);
+    expect(list[0]).not.toHaveProperty('followUpMin');
+    expect(list[1]).toMatchObject({ id: 'water', followUpMin: 30 });
+  });
 });

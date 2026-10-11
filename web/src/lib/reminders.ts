@@ -3,9 +3,12 @@ import { addDays, todayISO } from './dates';
 import { checkinKey, type CheckinMap } from './schedule';
 import type { Habit, Settings } from './types';
 
+/** A stronger reminder asks again this long after the first one if it's still unanswered. */
+export const FOLLOW_UP_MIN = 30;
+
 /**
  * The complete reminder schedule the server should hold for this device.
- * Only names, emoji and times leave the phone; answers never do. Dates already answered
+ * Only names, emoji and reminder times leave the phone; answers never do. Dates already answered
  * (e.g. you logged the gym before the reminder) are sent as skipDates so no push goes out.
  */
 export function buildReminders(
@@ -32,6 +35,7 @@ export function buildReminders(
         time: h.time ?? settings.defaultAskTime,
         offsetMin: h.time ? h.askAfterMin : 0,
         skipDates,
+        ...(h.strongReminder ? { followUpMin: FOLLOW_UP_MIN } : {}),
       };
     });
   if (settings.weeklyReport.enabled) {

@@ -28,6 +28,8 @@ Most habit apps ask you to log details, and most people stop logging after a wee
 - **Plain-English quick add.** `Gym Mon Wed Fri 6pm`, `French class Tue/Thu 19h30`, `Read daily 22:00`, `Run 3x a week`. You can also paste or import a whole schedule (text, CSV or a backup file).
 - **Native iPhone app.** The same app in a native shell (Capacitor). Reminders are scheduled on the phone itself with **✅ Yes / ❌ No** buttons right on the notification, with no server at all. Share it through TestFlight or the App Store ([guide](docs/IOS.md)).
 - **Yes/No push reminders on the web.** On Android and desktop Chrome/Edge you answer straight from the notification, without opening the app. On iPhone (Home Screen web app, iOS 16.4+) and Safari you tap the notification to answer.
+- **Stronger reminders.** Per habit: if a check-in is still unanswered 30 minutes later, it asks again, and on computers the notification stays on screen until you answer. Answering on any device cancels the second ask.
+- **Water check-ins for everyone.** Every user starts with three water check-ins that add up to 4 litres a day (1 L in the morning, 1.5 L at noon, 1.5 L in the evening), with stronger reminders. They're ordinary habits: change the amounts or delete them, and a deleted one never comes back, on any device.
 - **"What got in the way?"** One tap after a No (too tired, too busy, forgot…) feeds the insights.
 - **Weekly report.** Completion rate, a fair comparison with _this time last week_, a per-habit week grid, streaks, an 8-week trend, completion by weekday, reasons for missing, and a 16-week consistency heatmap.
 - **Insights in plain language.** _"Fridays are your weak spot: 42% vs 75% overall."_ _"'Too tired' is behind 11 of your 18 misses."_ _"You show up more in the morning."_ Every rule needs a minimum amount of data, so it doesn't report patterns built on two data points.
@@ -89,7 +91,7 @@ More detail, including design decisions, trade-offs and scaling notes, is in [do
 | **iPhone app** (`web/ios`) | Capacitor 8 (Swift Package Manager), local notifications with actionable Yes/No categories, native storage backup, iOS share sheet |
 | **Server** (`api/`) | Cloudflare Workers, Hono, D1 (SQLite), Durable Objects (WebSocket hibernation), Zod, cron triggers, Web Push written on the Web Crypto API |
 | **Encryption** | Web Crypto API on the device: HKDF-SHA256 key derivation, AES-256-GCM records, HMAC-SHA256 opaque ids |
-| **Quality** | Vitest (152 unit tests), an integration test that runs the real worker locally with D1, Durable Objects and a mock push service (23 checks), a privacy suite against the same real worker (54 checks), Playwright end-to-end tests (48 checks, including two users and a second device in real browsers, a three-browser privacy run, and the iPhone code paths behind a fake native shell), GitHub Actions CI |
+| **Quality** | Vitest (181 unit tests), an integration test that runs the real worker locally with D1, Durable Objects and a mock push service (25 checks), a privacy suite against the same real worker (54 checks), Playwright end-to-end tests (56 checks, including two users and a second device in real browsers, a three-browser privacy run, and the iPhone code paths behind a fake native shell), GitHub Actions CI |
 | **Hosting** | GitHub Pages (web) and Cloudflare Workers Free (API). Both cost €0. |
 
 ### Engineering highlights

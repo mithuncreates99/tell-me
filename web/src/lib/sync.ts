@@ -162,6 +162,24 @@ async function run(): Promise<SyncResult> {
   }
 }
 
+/**
+ * Does the signed-in account already have (or did it have) any of these habits? Deleted ones count:
+ * the starter habits must not come back on this device after being deleted on another one.
+ * 'no-account' when nobody is signed in here, 'unknown' when the server can't be asked right now.
+ */
+export async function accountHasHabits(ids: readonly string[]): Promise<'yes' | 'no' | 'no-account' | 'unknown'> {
+  const account = API_URL ? await loadAccount() : null;
+  if (!account) return 'no-account';
+  try {
+    const keys = await deriveKeys(account.key);
+    const opaque = await Promise.all(ids.map((id) => opaqueId(keys, 'h', id)));
+    const { found } = await cloud.has(keys.auth, opaque);
+    return found.length > 0 ? 'yes' : 'no';
+  } catch {
+    return 'unknown';
+  }
+}
+
 interface ShareState {
   hash: string;
   at: string;

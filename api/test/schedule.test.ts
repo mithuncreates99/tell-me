@@ -82,3 +82,39 @@ describe('computeNextFire', () => {
     expect(computeNextFire({ days: 0, time: '18:00', offsetMin: 0 }, PARIS, Date.now())).toBeNull();
   });
 });
+
+describe('computeNextFire with a follow-up (stronger reminder)', () => {
+  const DAILY = daysToMask([0, 1, 2, 3, 4, 5, 6]);
+  const water = { days: DAILY, time: '09:00', offsetMin: 0, followUpMin: 30 };
+
+  it('asks first at the planned time', () => {
+    const next = computeNextFire(water, PARIS, at('2026-10-12T06:00:00Z')); // Mon 08:00 Paris
+    expect(next).toEqual({ fireAt: at('2026-10-12T07:00:00Z'), date: '2026-10-12', followUp: false });
+  });
+
+  it('asks again 30 minutes after the first push', () => {
+    const next = computeNextFire(water, PARIS, at('2026-10-12T07:00:00Z')); // right after the 09:00 push
+    expect(next).toEqual({ fireAt: at('2026-10-12T07:30:00Z'), date: '2026-10-12', followUp: true });
+  });
+
+  it('moves to the next day after the second ask', () => {
+    const next = computeNextFire(water, PARIS, at('2026-10-12T07:30:00Z'));
+    expect(next).toEqual({ fireAt: at('2026-10-13T07:00:00Z'), date: '2026-10-13', followUp: false });
+  });
+
+  it('answering cancels the second ask too', () => {
+    const next = computeNextFire({ ...water, skipDates: ['2026-10-12'] }, PARIS, at('2026-10-12T07:10:00Z'));
+    expect(next).toEqual({ fireAt: at('2026-10-13T07:00:00Z'), date: '2026-10-13', followUp: false });
+  });
+
+  it('keeps the date of the occurrence when the second ask lands after midnight', () => {
+    const late = { days: daysToMask([1]), time: '23:50', offsetMin: 0, followUpMin: 30 };
+    const next = computeNextFire(late, PARIS, at('2026-10-12T21:55:00Z')); // Mon 23:55 Paris
+    expect(next).toEqual({ fireAt: at('2026-10-12T22:20:00Z'), date: '2026-10-12', followUp: true }); // Tue 00:20
+  });
+
+  it('never asks twice without a follow-up', () => {
+    const next = computeNextFire({ ...water, followUpMin: 0 }, PARIS, at('2026-10-12T07:00:00Z'));
+    expect(next).toEqual({ fireAt: at('2026-10-13T07:00:00Z'), date: '2026-10-13', followUp: false });
+  });
+});
