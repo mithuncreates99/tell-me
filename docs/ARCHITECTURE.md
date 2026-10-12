@@ -164,6 +164,14 @@ The client reconnects with exponential backoff and, on every (re)connect, runs a
 - **Challenge:** "Gym 3× this week". Each member picks one of their own shared habits; progress is that habit's Yes count in the member's own current week, so it resets every Monday without a background job.
 - A device with web push on is linked to its account (`POST /api/me/devices/:id`, which requires the device's own token), so social pushes reach it.
 
+### 13. New versions reaching open apps
+The service worker (`web/src/sw.ts`) precaches the whole app, so it opens offline, and it activates a new version as soon as that version is downloaded. Browsers only look for a new version when a page is loaded, but an installed app is usually *resumed*, so `web/src/lib/updates.ts` also asks every time the app comes back on screen and hourly while it stays open. When a new version takes over:
+
+- the app was just opened or brought back and hasn't been touched: it reloads straight into the new version;
+- someone is using it: a toast offers a reload, and the app reloads by itself the next time it goes to the background.
+
+The iPhone app is different: its files ship inside the app, so it changes only with a new build.
+
 ## Insights engine
 
 `web/src/lib/insights.ts` turns check-ins into at most six plain-language cards, ordered by priority. Every rule has a minimum-data guard:
@@ -227,10 +235,10 @@ The client reconnects with exponential backoff and, on every (re)connect, runs a
 
 | Layer | What | Where |
 | --- | --- | --- |
-| Unit (181) | parser, schedule, stats, insights, ICS, reminders, notifications, IndexedDB (fake-indexeddb), time zones and DST, scheduler, validation, Web Push encryption checked against Mozilla's reference decryptor, VAPID signature; key derivation checked against Node's own HKDF, encryption and opaque ids, the sync engine with two simulated devices (conflicts, deletes, pending edits), the starter habits across devices (no duplicates, a deletion is never undone), follow-up scheduling, shared-snapshot normalization | `web/test`, `api/test` |
+| Unit (187) | parser, schedule, stats, insights, ICS, reminders, notifications, IndexedDB (fake-indexeddb), time zones and DST, scheduler, validation, Web Push encryption checked against Mozilla's reference decryptor, VAPID signature; key derivation checked against Node's own HKDF, encryption and opaque ids, the sync engine with two simulated devices (conflicts, deletes, pending edits), the starter habits across devices (no duplicates, a deletion is never undone), follow-up scheduling, shared-snapshot normalization | `web/test`, `api/test` |
 | Integration (25) | real worker in `wrangler dev` with local D1 + Durable Objects + cron trigger + a mock push service that decrypts every message: reminders and their follow-up asks, accounts, encrypted sync with last-writer-wins, live WebSocket events, friends, nudges and reactions delivered as pushes, challenges, account deletion | `api/scripts/integration-test.mjs` |
 | Privacy (54) | six simulated people against the real worker: friends, a friend of a friend, a stranger and a code guesser; every response, live event and push each one receives is checked | `api/scripts/privacy-test.mjs` |
-| End-to-end (56) | **Two people and a laptop** in real browsers against the real worker: sign-up, invite link, live check-ins, reactions, nudges, a weekly challenge, signing in on a second device with the key, a change on one device appearing live on the other, sign-out. Plus the single-user flows: onboarding → quick add → Yes/undo → No + reason → edit → import → demo → report → calendar → deep link → accessibility names → no horizontal overflow at 360 px; the **full push flow** (real app + real service worker + real worker, push delivered to the service worker via the Chrome DevTools Protocol, including a stronger reminder that stays on screen and asks again); the **starter water habits** (new and existing users, deletion, sample data); and the **iPhone app paths** behind a fake native shell (scheduling, Yes/No buttons, restore from native backup) | `e2e/` |
+| End-to-end (59) | **Two people and a laptop** in real browsers against the real worker: sign-up, invite link, live check-ins, reactions, nudges, a weekly challenge, signing in on a second device with the key, a change on one device appearing live on the other, sign-out. Plus the single-user flows: onboarding → quick add → Yes/undo → No + reason → edit → import → demo → report → calendar → deep link → accessibility names → no horizontal overflow at 360 px; the **full push flow** (real app + real service worker + real worker, push delivered to the service worker via the Chrome DevTools Protocol, including a stronger reminder that stays on screen and asks again); the **starter water habits** (new and existing users, deletion, sample data); **updates**: an open app that is resumed moves to a newly published version by itself; and the **iPhone app paths** behind a fake native shell (scheduling, Yes/No buttons, restore from native backup) | `e2e/` |
 
 ## FAQ
 

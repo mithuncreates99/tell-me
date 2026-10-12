@@ -243,7 +243,12 @@ export function App() {
       });
     const tick = setInterval(() => useStore.getState().tick(), 30_000);
     const onVisible = () => {
-      if (document.visibilityState === 'visible') void useStore.getState().reloadFromDisk();
+      if (document.visibilityState !== 'visible') return;
+      // Back on screen: pick up changes, and add the starter habits if the last try couldn't (offline).
+      void useStore
+        .getState()
+        .reloadFromDisk()
+        .then(() => useStore.getState().ensureStarterHabits());
     };
     document.addEventListener('visibilitychange', onVisible);
     const offExternal = onExternalChange(() => void useStore.getState().reloadFromDisk());

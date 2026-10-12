@@ -1,6 +1,6 @@
 {
   "name": "tell-me-web",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "Tell Me: a habit tracker that asks one question — did you show up? Yes/No check-ins, push reminders and weekly insights.",
   "type": "module",

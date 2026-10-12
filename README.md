@@ -37,7 +37,7 @@ Most habit apps ask you to log details, and most people stop logging after a wee
 - **Weekly challenges.** "Gym 3× this week": everyone picks one of their own habits, and progress updates live and resets every week.
 - **Sync across devices, end-to-end encrypted.** An optional account with no email and no password: a secret key your devices keep. Every habit and answer is encrypted on the device (AES-256-GCM) before upload, so the server can't read them.
 - **Private by default.** Without an account, everything stays on your device (IndexedDB). With one, friends only ever see the habits you choose to share, and the reminder server never learns your answers. [Privacy details](docs/PRIVACY.md)
-- **Installable PWA.** Works offline, dark mode, calendar view, JSON backup and restore, and a calendar file (.ics) when push isn't available.
+- **Installable PWA.** Updates itself, even when the installed app is only resumed, not reopened. Works offline, dark mode, calendar view, JSON backup and restore, and a calendar file (.ics) when push isn't available.
 - **Accessible.** Every chart has a table view, the hover tooltips also work on keyboard focus, all controls are labelled, and reduced-motion settings are respected.
 
 | Friends, live | Invite link | No-password account | Weekly report |
@@ -91,7 +91,7 @@ More detail, including design decisions, trade-offs and scaling notes, is in [do
 | **iPhone app** (`web/ios`) | Capacitor 8 (Swift Package Manager), local notifications with actionable Yes/No categories, native storage backup, iOS share sheet |
 | **Server** (`api/`) | Cloudflare Workers, Hono, D1 (SQLite), Durable Objects (WebSocket hibernation), Zod, cron triggers, Web Push written on the Web Crypto API |
 | **Encryption** | Web Crypto API on the device: HKDF-SHA256 key derivation, AES-256-GCM records, HMAC-SHA256 opaque ids |
-| **Quality** | Vitest (181 unit tests), an integration test that runs the real worker locally with D1, Durable Objects and a mock push service (25 checks), a privacy suite against the same real worker (54 checks), Playwright end-to-end tests (56 checks, including two users and a second device in real browsers, a three-browser privacy run, and the iPhone code paths behind a fake native shell), GitHub Actions CI |
+| **Quality** | Vitest (187 unit tests), an integration test that runs the real worker locally with D1, Durable Objects and a mock push service (25 checks), a privacy suite against the same real worker (54 checks), Playwright end-to-end tests (59 checks, including two users and a second device in real browsers, a three-browser privacy run, and the iPhone code paths behind a fake native shell), GitHub Actions CI |
 | **Hosting** | GitHub Pages (web) and Cloudflare Workers Free (API). Both cost €0. |
 
 ### Engineering highlights
