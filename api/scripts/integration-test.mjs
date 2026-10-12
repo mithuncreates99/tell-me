@@ -82,8 +82,13 @@ try {
     assert.equal(push.headers.urgency, 'high');
     assert.equal(push.headers.topic, 'h-gym');
     const [row] = sql(`SELECT next_fire_at, next_date FROM reminders WHERE device_id = '${deviceId}' AND id = 'gym'`);
+    // Rescheduled to the next real occurrence: a Mon/Wed/Fri at 19:00 in Paris (18:00 + 60 min), in the
+    // future. (On those days before 19:00 that is still today's.)
     assert.ok(row.next_fire_at > Date.now(), 'next push rescheduled into the future');
-    assert.notEqual(row.next_date, today);
+    const paris = (opts) => new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Paris', ...opts }).format(new Date(row.next_fire_at));
+    assert.equal(paris({ hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }), '19:00');
+    assert.ok(['Mon', 'Wed', 'Fri'].includes(paris({ weekday: 'short' })), `next push on ${paris({ weekday: 'short' })}`);
+    assert.equal(row.next_date, new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Paris' }).format(new Date(row.next_fire_at)));
     const [dev] = sql(`SELECT last_push_at, failures FROM devices WHERE id = '${deviceId}'`);
     assert.ok(dev.last_push_at > 0);
   });
